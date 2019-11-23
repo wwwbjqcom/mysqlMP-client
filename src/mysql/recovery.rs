@@ -36,7 +36,7 @@ pub fn recovery_my_slave(tcp: &mut TcpStream,conf: &Arc<Config>) -> Result<(), B
 //    let mut value = vec![0u8; value_length as usize];
 //    tcp.read_exact(&mut value)?;
     let value = crate::io::get_network_packet(tcp)?;
-    let rec_info: RecoveryInfo = serde_json::from_str(crate::readvalue::read_string_value(&value).as_ref()).unwrap();
+    let rec_info: RecoveryInfo = serde_json::from_str(crate::readvalue::read_string_value(&value).as_ref())?;
     //println!("{:?}",rec_info);
 
     let path = format!("{}/{}",conf.binlogdir,rec_info.binlog);
@@ -107,7 +107,6 @@ fn change_master(tcp: &mut TcpStream, conf: &Arc<Config>, rec_info: &RecoveryInf
     crate::io::command::execute_update(tcp, &String::from("start slave"))?;
     Ok(())
 }
-
 
 fn match_state(sate: Result<(), Box<dyn Error>>) -> Result<(), Box<dyn Error>> {
     match sate {

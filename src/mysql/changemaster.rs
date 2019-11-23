@@ -19,9 +19,10 @@ pub fn change_master(mut tcp: &TcpStream, conf: &Arc<Config>) -> Result<(), Box<
     match conn {
         Ok(mut tcp) => {
             let value = crate::io::get_network_packet(&mut tcp)?;
-            let change_info: ChangeMasterInfo = serde_json::from_str(crate::readvalue::read_string_value(&value).as_ref()).unwrap();
+            let change_info: ChangeMasterInfo = serde_json::from_str(crate::readvalue::read_string_value(&value).as_ref())?;
             let state = change_master_info(&mut tcp, conf, &change_info);
             mysql::check_state(&state);
+
         }
         Err(e) => {
             println!("{:?}",e);
@@ -30,6 +31,7 @@ pub fn change_master(mut tcp: &TcpStream, conf: &Arc<Config>) -> Result<(), Box<
             mysql::check_state(&state);
         }
     }
+    crate::mysql::send_ok_packet(tcp);
     Ok(())
 }
 

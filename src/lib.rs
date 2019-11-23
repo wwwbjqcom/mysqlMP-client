@@ -190,17 +190,17 @@ fn handle_stream(mut tcp: TcpStream, conf: Arc<Config>) {
         }
     }
 
-    let type_code = mysql::MyProtocol::new(buf[0]);
+    let type_code = mysql::MyProtocol::new(&buf[0]);
     //println!("{:?},{:?}",buf[0],type_code);
     match type_code {
         mysql::MyProtocol::MysqlCheck => {
             let mysql_status = mysql::state_check::mysql_state_check(conf);
             //let value = serde_json::to_string(&mysql_status).unwrap();
-            let state = mysql::write_value(&tcp, &mysql_status);
+            let state = mysql::send_value_packet(&tcp, &mysql_status, mysql::MyProtocol::MysqlCheck);
             match state {
                 Ok(()) => {}
                 Err(e) => {
-                    println!("{}",e);
+                    println!("{}",e.to_string());
                 }
             }
         }
@@ -214,7 +214,10 @@ fn handle_stream(mut tcp: TcpStream, conf: Arc<Config>) {
             let state = mysql::changemaster::change_master(&tcp, &conf);
             mysql::check_state(&state);
         }
-        mysql::MyProtocol::SyncBinlog => {}
+        mysql::MyProtocol::SyncBinlog => {
+            let state = mysql::syncbinlog::sync_binlog_info(&conf, &mut tcp);
+            mysql::check_state(&state);
+        }
         mysql::MyProtocol::RecoveryCluster => {
             println!("this is a recoverycluster packet !!");
             let state = mysql::recovery::recovery_my_slave(&mut tcp, &conf);
@@ -223,14 +226,18 @@ fn handle_stream(mut tcp: TcpStream, conf: Arc<Config>) {
                     println!("recovery down ");
                 }
                 Err(e) => {
-                    println!("{:?}",e);
+                    println!("{:?}",e.to_string());
                 }
             }
+        }
+        mysql::MyProtocol::DownNodeCheck => {
+            let state = mysql::nodecheck::check_down_node(&mut tcp, &conf);
+            mysql::check_state(&state);
         }
         mysql::MyProtocol::UnKnow => {
             let err = ReponseErr{err:String::from("Invalid type_code")};
             //let value = serde_json::to_string(&err).unwrap();
-            let state = mysql::write_value(&tcp, &err);
+            let state = mysql::send_value_packet(&tcp, &err, mysql::MyProtocol::Error);
             match state {
                 Ok(()) => {}
                 Err(e) => {

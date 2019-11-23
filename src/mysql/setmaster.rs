@@ -24,6 +24,7 @@ pub fn set_master(mut tcp: &TcpStream, conf: &Arc<Config>) {
             mysql::check_state(&state);
         }
     }
+    crate::mysql::send_ok_packet(tcp);
 }
 
 ///

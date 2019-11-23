@@ -44,7 +44,7 @@ impl Worker{
         let thread = thread::spawn(move ||{
             loop {
                 let msg = receiver.lock().unwrap().recv().unwrap();
-                println!("Worker {} got a job; executing.", id);
+                //println!("Worker {} got a job; executing.", id);
                 match msg {
                     Message::NewJob(job) => {
                         job.call_box();
