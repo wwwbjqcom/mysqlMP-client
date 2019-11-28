@@ -9,7 +9,6 @@ use std::sync::Arc;
 use crate::mysql;
 use std::error::Error;
 
-
 pub fn set_master(mut tcp: &TcpStream, conf: &Arc<Config>) {
     let conn = crate::create_conn(conf);
     match conn {

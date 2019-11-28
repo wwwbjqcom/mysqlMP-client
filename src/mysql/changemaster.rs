@@ -11,7 +11,7 @@ use std::error::Error;
 #[derive(Deserialize)]
 pub struct ChangeMasterInfo{
     pub master_host: String,
-    pub master_port: String
+    pub master_port: usize
 }
 
 pub fn change_master(mut tcp: &TcpStream, conf: &Arc<Config>) -> Result<(), Box<dyn Error>> {

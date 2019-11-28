@@ -16,6 +16,9 @@ pub struct MysqlState {
     pub sql_thread: bool,
     pub io_thread: bool,
     pub seconds_behind: usize,
+    pub master_log_file: String,
+    pub read_master_log_pos: usize,
+    pub exec_master_log_pos: usize,
     pub error: String
 }
 
@@ -27,6 +30,9 @@ impl MysqlState {
             sql_thread: false,
             io_thread: false,
             seconds_behind: 0,
+            master_log_file: "".to_string(),
+            read_master_log_pos: 0,
+            exec_master_log_pos: 0,
             error: "".to_string()
         }
     }
@@ -76,6 +82,9 @@ fn slave_state_check(tcp: &mut TcpStream, state: &mut MysqlState) {
                     }
 
                     state.seconds_behind = row.get(&String::from("Seconds_Behind_Master")).unwrap().parse().unwrap();
+                    state.master_log_file = row.get(&String::from("Master_Log_File")).unwrap().parse().unwrap();
+                    state.read_master_log_pos = row.get(&String::from("Read_Master_Log_Pos")).unwrap().parse().unwrap();
+                    state.exec_master_log_pos = row.get(&String::from("Exec_Master_Log_Pos")).unwrap().parse().unwrap();
                 }
 
             }else {
