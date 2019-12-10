@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::Config;
 use std::error::Error;
 use crate::mysql::state_check::MysqlState;
-use crate::mysql::{MyProtocol, conn, send_packet, rec_packet};
+use crate::mysql::{MyProtocol, conn, rec_packet, ReponseErr, send_value_packet, Null};
 use serde::{Serialize, Deserialize};
 
 ///
@@ -52,15 +52,16 @@ impl DownNodeCheckStatus {
 ///     首先通过state_check方式检查
 ///     再通过直连db检查
 ///
-pub fn check_down_node(tcp: &mut TcpStream,conf: &Arc<Config>) -> Result<(), Box<dyn Error>> {
-    let value = crate::io::get_network_packet(tcp)?;
-    let value: DownNodeCheck = serde_json::from_slice(&value)?;
-    println!("check status: {:?}....",value);
+pub fn check_down_node(tcp: &mut TcpStream,conf: &Arc<Config>, buf: &Vec<u8>) -> Result<(), Box<dyn Error>> {
+    //let value = crate::io::get_network_packet(tcp)?;
+    let value = &buf[9..];
+    let value: DownNodeCheck = serde_json::from_slice(value)?;
+    info!("check status: {:?}....",value);
     let mut node_state = DownNodeCheckStatus::new(value.host.clone());
     let state = get_node_state_from_host(&value.host);
     match state {
         Ok(v) => {
-            println!("{:?}",v);
+            info!("{:?}",v);
             if !v.online {
                 node_state.set_db_status();
             }
@@ -71,10 +72,16 @@ pub fn check_down_node(tcp: &mut TcpStream,conf: &Arc<Config>) -> Result<(), Box
             node_state.set_client_status();
         }
     }
-    if let Err(_e) = crate::create_conn(conf) {
+    let mut new_conf = conf.clone_new();
+    let host_info = value.host.split(":");
+    let host_vec = host_info.collect::<Vec<&str>>();
+    let host_info = format!("{}:{}",host_vec[0],value.dbport);
+    new_conf.alter_host(host_info);
+    //info!("{:?}",new_conf);
+    if let Err(_e) = crate::create_conn(&new_conf) {
         node_state.set_db_status();
     }
-    println!("{:?}",node_state);
+    info!("{:?}",node_state);
     crate::mysql::send_value_packet(&tcp, &node_state, MyProtocol::DownNodeCheck)?;
     return Ok(());
 
@@ -84,13 +91,17 @@ fn get_node_state_from_host(host_info: &str) -> Result<MysqlState, Box<dyn Error
     let mut conn = conn(host_info)?;
     let mut buf: Vec<u8> = vec![];
     buf.push(0xfe);
-    send_packet(&buf, &mut conn)?;
+    send_value_packet(&mut conn, &Null::new(), MyProtocol::MysqlCheck)?;
     let packet = rec_packet(&mut conn)?;
     let type_code = MyProtocol::new(&packet[0]);
     match type_code {
         MyProtocol::MysqlCheck => {
             let value: MysqlState = serde_json::from_slice(&packet[9..])?;
             return Ok(value);
+        }
+        MyProtocol::Error => {
+            let value: ReponseErr = serde_json::from_slice(&packet[9..])?;
+            return get_node_state_from_host(host_info);
         }
         _ => {
             let a = format!("return invalid type code: {}",&packet[0]);

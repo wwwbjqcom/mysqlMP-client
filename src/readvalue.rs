@@ -7,6 +7,8 @@ use std::str::from_utf8;
 use std::io::{Cursor, Read};
 use byteorder::{ReadBytesExt, LittleEndian, WriteBytesExt, BigEndian};
 use std::io;
+use std::net::TcpStream;
+use std::error::Error;
 
 pub fn read_num_pack<R: Read, S: Into<usize>>(num: S, buf: &mut R) -> Vec<u8> {
     let mut pack = vec![0u8; num.into()];
@@ -24,7 +26,7 @@ pub fn read_string_value(pack: &[u8]) -> String{
     match from_utf8(pack) {
         Ok(t) => t.parse().unwrap(),
         Err(e) => {
-            println!("{:?}", e);
+            info!("{:?}", e);
             String::from("")
         }
     }
@@ -142,5 +144,20 @@ pub fn read_nbytes<R: Read, S: Into<usize>>(r: &mut R, desired_bytes: S) -> io::
     let mut into = vec![0u8; desired_bytes.into()];
     r.read_exact(&mut into)?;
     Ok(into)
+}
+
+///
+/// 接收client返回的数据
+///
+pub fn rec_packet(conn: &mut TcpStream) -> Result<Vec<u8>, Box<dyn Error>> {
+    let mut buf: Vec<u8> = vec![];
+    let mut header: Vec<u8> = vec![0u8;9];
+    conn.read_exact(&mut header)?;
+    let payload = crate::readvalue::read_u64(&header[1..]);
+    let mut payload_buf: Vec<u8> = vec![0u8; payload as usize];
+    conn.read_exact(&mut payload_buf)?;
+    buf.extend(header);
+    buf.extend(payload_buf);
+    Ok(buf)
 }
 

@@ -130,7 +130,6 @@ impl RowValue{
 
         //let col_count = map.column_info.len();
         let col_count = buf.read_u8().unwrap();
-
         let columns_length = ((col_count + 7) / 8) as i64;
         match header.type_code {
             BinlogEvent::UpdateEvent => {
@@ -141,7 +140,6 @@ impl RowValue{
 
             }
         }
-
         let mut rows: Vec<Vec<Option<MySQLValue>>> = vec![];;
         loop {
             let mut null_bit = vec![0u8; columns_length as usize];
@@ -155,7 +153,6 @@ impl RowValue{
                     MySQLValue::Null
                 } else {
                     Self::parsevalue(buf, &map.column_info[idx].column_type, &map.column_info[idx].column_meta)
-
                 };
                 row.push(Some(value));
             }
@@ -167,7 +164,7 @@ impl RowValue{
                     }
                 }
                 crate::meta::ReadType::File => {
-                    if (buf.tell().unwrap() + 4) as usize > header.event_length as usize  - 19 {
+                    if (buf.tell().unwrap() + 4) as usize >= (header.event_length as usize  - header.header_length as usize){
                         break;
                     }
                 }
@@ -204,7 +201,7 @@ impl RowValue{
                 match Self::read_new_decimal(&value_buf.to_vec(), &decimal_meta) {
                     Ok(t) => MySQLValue::Decimal(t),
                     Err(e) => {
-                        println!("decimal 解析错误: {}",e);
+                        info!("decimal 解析错误: {}",e);
                         MySQLValue::Null
                     }
                 }

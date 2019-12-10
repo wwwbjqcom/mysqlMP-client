@@ -22,11 +22,11 @@ pub fn get_command(
         Some(t) => {
             let cols = t;
             //let pri_idex = 0 as usize;          //主键索引
-            let mut pri = &String::from("");    //主键名称
+            //let mut pri = &String::from("");    //主键名称
             let mut pri_info: HashMap<String, usize> = HashMap::new();
             for (idx,r) in cols.iter().enumerate(){
                 if r.get("COLUMN_KEY").unwrap() == &String::from("PRI") {
-                    pri = r.get("COLUMN_NAME").unwrap();
+                    let pri = r.get("COLUMN_NAME").unwrap();
                     pri_info.insert(pri.parse().unwrap(), idx);
                 }
             }
@@ -194,7 +194,7 @@ fn get_values_info(value: &Option<MySQLValue>, col_type: &String) -> String {
             value_str.push_str(&format!("'{}-{}-{}'", year, month, day));
         }
         _ => {
-            println!("{:?}",value);
+            info!("{:?}",value);
         }
     }
     value_str
@@ -359,7 +359,7 @@ fn get_value_str(value: &Option<MySQLValue>,col: &String, col_type: &String, get
             where_str.push_str(&format!("{}='{}-{}-{}'",col, year, month, day));
         }
         _ => {
-            println!("{:?}",value);
+            info!("{:?}",value);
         }
     }
     where_str

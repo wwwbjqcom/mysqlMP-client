@@ -15,9 +15,40 @@ use pool::ThreadPool;
 use structopt::StructOpt;
 use std::sync::{Arc};
 use std::net::{TcpListener, TcpStream};
-use std::io::{Read};
 use std::time::Duration;
 use crate::mysql::ReponseErr;
+
+#[macro_use]
+extern crate log;
+extern crate log4rs;
+
+use log::LevelFilter;
+use log4rs::append::console::ConsoleAppender;
+use log4rs::append::file::FileAppender;
+use log4rs::encode::pattern::PatternEncoder;
+use log4rs::config::{Appender, Root};
+use std::error::Error;
+
+fn init_log() {
+    let stdout = ConsoleAppender::builder().build();
+
+    let requests = FileAppender::builder()
+        .encoder(Box::new(PatternEncoder::new("{d} - {m}{n}")))
+        .build("log/requests.log")
+        .unwrap();
+
+    let config = log4rs::config::Config::builder()
+        .appender(Appender::builder().build("stdout", Box::new(stdout)))
+        .appender(Appender::builder().build("requests", Box::new(requests)))
+        .logger(log4rs::config::Logger::builder().build("app::backend::db", LevelFilter::Info))
+        .logger(log4rs::config::Logger::builder()
+            .appender("requests")
+            .additive(false)
+            .build("app::requests", LevelFilter::Info))
+        .build(Root::builder().appender("requests").build(LevelFilter::Info))
+        .unwrap();
+    log4rs::init_config(config).unwrap();
+}
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "example", about = "An example of StructOpt usage.")]
@@ -145,13 +176,35 @@ impl Config{
             binlogdir
         })
     }
+
+    pub fn clone_new(&self) -> Config {
+        Config{
+            slowlog: self.slowlog.clone(),
+            audit: self.audit.clone(),
+            monitor: self.monitor.clone(),
+            port: self.port.clone(),
+            host_info: self.host_info.clone(),
+            user_name: self.user_name.clone(),
+            password: self.password.clone(),
+            database: self.database.clone(),
+            program_name: self.program_name.clone(),
+            repl_user: self.repl_user.clone(),
+            repl_passwd: self.repl_passwd.clone(),
+            binlogdir: self.binlogdir.clone()
+        }
+    }
+
+    pub fn alter_host(&mut self, host_info: String) {
+        self.host_info = host_info;
+    }
 }
 
 
 pub fn start(conf: Config) {
+    init_log();
     let listen_info = format!("0.0.0.0:{}",conf.port);
     let listener = TcpListener::bind(listen_info).unwrap_or_else(|err|{
-        println!("{:?}",err);
+        info!("{:?}",err);
         std::process::exit(1)
     });
 
@@ -179,79 +232,114 @@ pub fn start(conf: Config) {
 fn handle_stream(mut tcp: TcpStream, conf: Arc<Config>) {
     tcp.set_read_timeout(Some(Duration::new(2,10))).expect("set_read_timeout call failed");
     tcp.set_write_timeout(Some(Duration::new(10,10))).expect("set_write_timeout call failed");
-    let mut buf = [0u8; 1];
-    let result = tcp.read_exact(&mut buf);
+
+    let result = readvalue::rec_packet(&mut tcp);
+//    let mut buf = [0u8; 1];
+//    let result = tcp.read_exact(&mut buf);
     //println!("{}",buf[0]);
     match result {
-        Ok(_v) => {}
+        Ok(buf) => {
+            let type_code = mysql::MyProtocol::new(&buf[0]);
+            //println!("{:?},{:?}",buf[0],type_code);
+            match type_code {
+                mysql::MyProtocol::MysqlCheck => {
+                    let mysql_status = mysql::state_check::mysql_state_check(conf);
+                    let state = mysql::send_value_packet(&tcp, &mysql_status, mysql::MyProtocol::MysqlCheck);
+                    match state {
+                        Ok(()) => {}
+                        Err(e) => {
+                            info!("{}",e.to_string());
+                        }
+                    }
+                }
+                mysql::MyProtocol::GetSlowLog => {}
+                mysql::MyProtocol::GetAuditLog => {}
+                mysql::MyProtocol::GetMonitor => {}
+                mysql::MyProtocol::SetVariables => {
+                    if let Err(e) = mysql::changemaster::set_variabels(&mut tcp, &conf){
+                        let state = mysql::send_error_packet(&ReponseErr::new(e.to_string()), &mut tcp);
+                        mysql::check_state(&state);
+                        info!("{}",e.to_string());
+                        return;
+                    };
+                }
+                mysql::MyProtocol::SetMaster => {
+                    info!("myself is new master...");
+                    let state = mysql::setmaster::set_master(&tcp, &conf);
+                    mysql::check_state(&state);
+                }
+                mysql::MyProtocol::ChangeMaster => {
+                    info!("change master packet...");
+                    let state = mysql::changemaster::change_master(&tcp, &conf, &buf);
+                    mysql::check_state(&state);
+                }
+                mysql::MyProtocol::PullBinlog => {
+                    if let Err(e) = mysql::syncbinlog::pull_binlog_info(&conf, &mut tcp, &buf){
+                        info!("{}", &e.to_string());
+                        let state = mysql::send_error_packet(&ReponseErr::new(e.to_string()), &mut tcp);
+                        mysql::check_state(&state);
+                    };
+                }
+                mysql::MyProtocol::PushBinlog => {
+                    if let Err(e) = mysql::syncbinlog::push_binlog_info(&conf, &mut tcp, &buf){
+                        info!("{}", &e.to_string());
+                        let state = mysql::send_error_packet(&ReponseErr::new(e.to_string()), &mut tcp);
+                        mysql::check_state(&state);
+                    };
+                }
+                mysql::MyProtocol::RecoveryCluster => {
+                    info!("this is a recoverycluster packet !!");
+                    let state = mysql::recovery::recovery_my_slave(&mut tcp, &conf, &buf);
+                    match state {
+                        Ok(()) => {
+                            info!("recovery down ");
+                        }
+                        Err(e) => {
+                            info!("{:?}",e.to_string());
+                        }
+                    }
+                }
+                mysql::MyProtocol::GetRecoveryInfo => {
+                    let mut recovery_info = mysql::recovery::GetRecoveryInfo::new();
+                    if let Err(e) = recovery_info.get_state(&conf){
+                        let err = e.to_string();
+                        let state = mysql::send_error_packet(&ReponseErr::new(err.clone()), &mut tcp);
+                        mysql::check_state(&state);
+                        info!("{}",err);
+                        return;
+                    }
+                    let state = mysql::send_value_packet(&tcp, &recovery_info, mysql::MyProtocol::GetRecoveryInfo);
+                    mysql::check_state(&state);
+                }
+                mysql::MyProtocol::DownNodeCheck => {
+                    let state = mysql::nodecheck::check_down_node(&mut tcp, &conf, &buf);
+                    mysql::check_state(&state);
+                }
+                mysql::MyProtocol::UnKnow => {
+                    let err = ReponseErr{err:String::from("Invalid type_code")};
+                    //let value = serde_json::to_string(&err).unwrap();
+                    let state = mysql::send_value_packet(&tcp, &err, mysql::MyProtocol::Error);
+                    match state {
+                        Ok(()) => {}
+                        Err(e) => {
+                            info!("{}",e);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
         Err(e) => {
-            println!("read packet from tcp failed: {:?}", e);
-            return;
-        }
-    }
-
-    let type_code = mysql::MyProtocol::new(&buf[0]);
-    //println!("{:?},{:?}",buf[0],type_code);
-    match type_code {
-        mysql::MyProtocol::MysqlCheck => {
-            let mysql_status = mysql::state_check::mysql_state_check(conf);
-            //let value = serde_json::to_string(&mysql_status).unwrap();
-            let state = mysql::send_value_packet(&tcp, &mysql_status, mysql::MyProtocol::MysqlCheck);
-            match state {
-                Ok(()) => {}
-                Err(e) => {
-                    println!("{}",e.to_string());
-                }
-            }
-        }
-        mysql::MyProtocol::GetSlowLog => {}
-        mysql::MyProtocol::GetAuditLog => {}
-        mysql::MyProtocol::GetMonitor => {}
-        mysql::MyProtocol::SetMaster => {
-            mysql::setmaster::set_master(&tcp, &conf);
-        }
-        mysql::MyProtocol::ChangeMaster => {
-            let state = mysql::changemaster::change_master(&tcp, &conf);
+            info!("read packet from tcp failed: {:?}", e);
+            let state = mysql::send_error_packet(&ReponseErr::new(e.to_string()), &mut tcp);
             mysql::check_state(&state);
         }
-        mysql::MyProtocol::SyncBinlog => {
-            let state = mysql::syncbinlog::sync_binlog_info(&conf, &mut tcp);
-            mysql::check_state(&state);
-        }
-        mysql::MyProtocol::RecoveryCluster => {
-            println!("this is a recoverycluster packet !!");
-            let state = mysql::recovery::recovery_my_slave(&mut tcp, &conf);
-            match state {
-                Ok(()) => {
-                    println!("recovery down ");
-                }
-                Err(e) => {
-                    println!("{:?}",e.to_string());
-                }
-            }
-        }
-        mysql::MyProtocol::DownNodeCheck => {
-            let state = mysql::nodecheck::check_down_node(&mut tcp, &conf);
-            mysql::check_state(&state);
-        }
-        mysql::MyProtocol::UnKnow => {
-            let err = ReponseErr{err:String::from("Invalid type_code")};
-            //let value = serde_json::to_string(&err).unwrap();
-            let state = mysql::send_value_packet(&tcp, &err, mysql::MyProtocol::Error);
-            match state {
-                Ok(()) => {}
-                Err(e) => {
-                    println!("{}",e);
-                }
-            }
-        }
-        _ => {}
     }
 
 }
 
 
-fn create_conn(config: &Config) -> Result<TcpStream, &'static str> {
-    let conn = io::connection::create_mysql_conn(config);
-    return conn;
+fn create_conn(config: &Config) -> Result<TcpStream, Box<dyn Error>> {
+    let conn = io::connection::create_mysql_conn(config)?;
+    return Ok(conn);
 }

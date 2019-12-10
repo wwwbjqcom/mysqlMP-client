@@ -188,7 +188,7 @@ pub fn sha2_auth(conn: &mut TcpStream, auth_data: &Vec<u8>, conf: &Config) -> bo
     packet.extend(pack_header(&payload, seq_id));
     packet.extend(payload.iter());
     write_value(conn, &packet).unwrap_or_else(|err|{
-        println!("{:?}",err);
+        info!("{:?}",err);
         std::process::exit(1)
     });
 
@@ -205,7 +205,7 @@ pub fn sha2_auth(conn: &mut TcpStream, auth_data: &Vec<u8>, conf: &Config) -> bo
     packet.extend(pack_header(&encrypted_pass, 7));
     packet.extend(encrypted_pass.iter());
     write_value(conn, &packet).unwrap_or_else(|err|{
-        println!("{:?}",err);
+        info!("{:?}",err);
         std::process::exit(1)
     });
 

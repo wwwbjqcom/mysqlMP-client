@@ -146,7 +146,7 @@ impl InitValue for QueryEvent{
 
         let mut command_pak = vec![];
         if *version == 5 {
-            let command_length = header.event_length as usize - buf.tell().unwrap() as usize - 3;
+            let command_length = header.event_length as usize - header.header_length as usize - buf.tell().unwrap() as usize - 4;
             command_pak = vec![0u8; command_length];
             buf.read_exact(&mut command_pak).unwrap();
         }else {
@@ -191,13 +191,11 @@ pub struct RotateLog{
 
 impl InitValue for RotateLog{
     fn read_event<R: Read+Seek>(header: &EventHeader, buf: &mut R, _version: &u8) -> RotateLog{
-        buf.seek(io::SeekFrom::End(0)).unwrap();
-        let end_idx = buf.tell().unwrap() as usize;
-        let offset_idx = header.header_length as usize + 8;
+        let offset_idx =  8;
         buf.seek(io::SeekFrom::Start(offset_idx as u64)).unwrap();
 
-        let len_gg = end_idx - offset_idx;
-        let mut tmp_buf = vec![0u8; len_gg];
+        let len_gg = header.event_length as usize - header.header_length as usize - offset_idx;
+        let mut tmp_buf = vec![0u8; len_gg as usize];
         buf.read_exact(&mut tmp_buf).unwrap();
         let binlog_file = String::from_utf8_lossy(&tmp_buf).to_string();
         RotateLog{

@@ -40,7 +40,7 @@ fn get_from_stream(stream: &mut TcpStream) -> (Vec<u8>, PacketHeader){
                 }
             }
             Err(e) => {
-                println!("{}",e);
+                info!("{}",e);
             }
         }
 
@@ -51,7 +51,7 @@ fn get_from_stream(stream: &mut TcpStream) -> (Vec<u8>, PacketHeader){
     match stream.read_exact(&mut packet_buf) {
         Ok(_) =>{}
         Err(e) => {
-            println!("read packet error:{}",e);
+            info!("read packet error:{}",e);
         }
     }
     return (packet_buf,header);
@@ -60,7 +60,7 @@ fn get_from_stream(stream: &mut TcpStream) -> (Vec<u8>, PacketHeader){
 pub fn get_packet_from_stream(stream: &mut TcpStream) -> (Vec<u8>, PacketHeader){
     let (mut buf,header) = get_from_stream(stream);
     while header.payload == 0xffffff{
-        println!("{}",header.payload);
+        info!("{}",header.payload);
         let (buf_tmp,_) = get_from_stream(stream);
         buf.extend(buf_tmp);
     }

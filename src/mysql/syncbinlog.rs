@@ -9,44 +9,64 @@ use std::sync::Arc;
 use std::net::TcpStream;
 use std::error::Error;
 use crate::binlog::open_file;
-use std::io::{Seek, SeekFrom, BufReader, Read};
+use std::io::{Seek, SeekFrom, Read, Cursor};
 use crate::binlog::readevent::Tell;
-use std::fs::File;
 use crate::mysql::MyProtocol;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct SyncBinlogInfo{
     binlog: String,
     position: usize
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct BinlogValue{
     value: Vec<u8>
 }
 impl BinlogValue{
-    fn new(value: Vec<u8>) -> BinlogValue {
-        BinlogValue{value}
+    fn new() -> BinlogValue {
+        BinlogValue{value: vec![]}
     }
 }
 
-pub fn sync_binlog_info(conf: &Arc<Config>, tcp: &mut TcpStream) -> Result<(), Box<dyn Error>>{
-    println!("ynchronization difference binlog");
-    let value = crate::io::get_network_packet(tcp)?;
-    let sync_info: SyncBinlogInfo = serde_json::from_str(crate::readvalue::read_string_value(&value).as_ref())?;
-    println!("start position {}",sync_info.position);
+pub fn pull_binlog_info(conf: &Arc<Config>, tcp: &mut TcpStream, buf: &Vec<u8>) -> Result<(), Box<dyn Error>>{
+    info!("synchronization difference binlog");
+    let sync_info: SyncBinlogInfo = serde_json::from_slice(&buf[9..])?;
+    info!("synchronization info: {:?}",&sync_info);
     let path = format!("{}/{}",conf.binlogdir,sync_info.binlog);
     let mut reader = open_file(&path)?;
     reader.seek(SeekFrom::End(0))?;
     let end_pos = reader.tell()?;
     let read_bytes = end_pos - sync_info.position as u64;
+    let mut binlog_value = BinlogValue::new();
     if read_bytes > 0{
-        let mut value: Vec<u8> = vec![];
         reader.seek(SeekFrom::Start(sync_info.position as u64))?;
-        reader.read_to_end(&mut value)?;
-        let value = BinlogValue::new(value);
-        crate::mysql::send_value_packet(tcp, &value, MyProtocol::SyncBinlog)?;
+        reader.read_to_end(&mut binlog_value.value)?;
     }
-    println!("successful synchronization");
+    crate::mysql::send_value_packet(tcp, &binlog_value, MyProtocol::PullBinlog)?;
+    info!("successful synchronization");
+    Ok(())
+}
+
+pub fn push_binlog_info(conf: &Arc<Config>, tcp: &mut TcpStream, buf: &Vec<u8>) -> Result<(), Box<dyn Error>> {
+    info!("append difference binlog");
+    //info!("{:?}", buf);
+    let value: BinlogValue = serde_json::from_slice(&buf[9..])?;
+    let reader_size= value.value.len() as u64;
+    info!("append {} bytes", reader_size);
+    let mut cur = Cursor::new(value.value);
+    let mut rowsql = crate::binlog::readbinlog::parse(conf, &mut cur, reader_size, false)?;
+    rowsql.set_append_etype();
+
+    let mut conn = crate::create_conn(conf)?;
+    for traction in &rowsql.sqls{
+        let sqls = &traction.cur_sql;
+        for sql in sqls{
+            info!("{}",sql);
+            crate::io::command::execute_update(&mut conn, sql)?;
+        }
+    }
+    info!("Ok");
+    crate::mysql::send_value_packet(&tcp, &rowsql, MyProtocol::RecoveryValue)?;
     Ok(())
 }

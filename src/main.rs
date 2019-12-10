@@ -13,7 +13,7 @@ fn main() {
         println!("Problem parsing arguments: {}", err);
         std::process::exit(1);
     });
-    println!("{:?}",conf);
+    //println!("{:?}",conf);
 
     mymha_client::start(conf);
 

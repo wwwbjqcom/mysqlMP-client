@@ -83,7 +83,7 @@ fn read_binary_json_type<R: Read>(buf: &mut R, var_length: &usize, m: &usize) ->
             JsonValue::from(buf.read_u64::<LittleEndian>().unwrap())
         }
         _ => {
-            println!("无效的json格式:{:?}",json_type_code);
+            info!("无效的json格式:{:?}",json_type_code);
             process::exit(1)
         }
     }
@@ -102,7 +102,7 @@ fn read_binary_json_object<R: Read>(buf: &mut R, var_length: &usize, large: &boo
     }
 
     if size > *var_length {
-        println!("json长度大于包长度, 现在退出程序！！！");
+        info!("json长度大于包长度, 现在退出程序！！！");
         process::exit(1);
     }
 
@@ -286,7 +286,7 @@ fn read_binary_json_array<R: Read>(buf: &mut R, var_length: &usize, large: &bool
         size = buf.read_u16::<LittleEndian>().unwrap() as usize;
     }
     if size > *var_length{
-        println!("json长度大于包长度, 现在退出程序！！！");
+        info!("json长度大于包长度, 现在退出程序！！！");
         process::exit(1);
     }
 

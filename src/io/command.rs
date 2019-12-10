@@ -97,7 +97,6 @@ pub fn execute(conn: &mut TcpStream,sql: &String) -> Result<Vec<HashMap<String,S
     socketio::write_value(conn,&pack)?;
 
     let a = unpack_text_packet(conn)?;
-
     return Ok(a);
 }
 
@@ -109,8 +108,8 @@ pub fn execute_update(conn: &mut TcpStream,sql: &String) -> Result<(), Box<dyn E
     if pack::check_pack(&buf){
         return Ok(());
     }else {
-        let _err = readvalue::read_string_value(&buf[3..]);
-        return Box::new(Err(_err)).unwrap();
+        let err = readvalue::read_string_value(&buf[3..]);
+        return Err(err.into());
     }
 
 }
@@ -140,17 +139,14 @@ fn unpack_text_packet(conn: &mut TcpStream) -> Result<Vec<HashMap<String,String>
             let column = MetaColumn::new(&buf);
             column_info.push(column);
         }
-
         //开始获取返回数据
         loop {
-            let (mut buf,header) = socketio::get_packet_from_stream(conn);
-            while header.payload == 0xffffff{
-                println!("{}",header.payload);
-                let (buf_tmp,_) = socketio::get_packet_from_stream(conn);
-                buf.extend(buf_tmp);
-            }
+            let (buf,header) = socketio::get_packet_from_stream(conn);
+            //println!("{},{}",buf[0], header.payload);
             if buf[0] == 0x00{
-                break;
+                if header.payload < 9{
+                    break;
+                }
             }else if buf[0] == 0xfe {
                 break;
             }
@@ -160,7 +156,7 @@ fn unpack_text_packet(conn: &mut TcpStream) -> Result<Vec<HashMap<String,String>
         Ok(values_info)
     }else {
         let _err = readvalue::read_string_value(&buf[3..]);
-        println!("执行语句错误: {}",_err);
+        info!("执行语句错误: {}",_err);
         Err("退出程序")
     }
 }

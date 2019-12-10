@@ -15,7 +15,7 @@ pub mod setmaster;
 pub mod changemaster;
 pub mod recovery;
 pub mod nodecheck;
-use serde::{Serialize};
+use serde::{Serialize, Deserialize};
 use std::error::Error;
 use std::time::Duration;
 
@@ -27,11 +27,16 @@ pub enum  MyProtocol {
     GetAuditLog,
     SetMaster,          //设置本机为新master
     ChangeMaster,
-    SyncBinlog,         //mysql服务宕机，同步差异binlog到新master
+    PullBinlog,         //mysql服务宕机，拉取宕机节点差异binlog
+    PushBinlog,         //推送需要追加的数据到新master
     RecoveryCluster,    //宕机重启自动恢复主从同步, 如有差异将回滚本机数据，并保存回滚数据
+    GetRecoveryInfo,    //从新master获取宕机恢复同步需要的信息
     RecoveryValue,      //宕机恢复回滚的数据，回给服务端保存，有管理员人工决定是否追加
     ReplicationStatus,  //获取slave同步状态
     DownNodeCheck,      //宕机节点状态检查，用于server端检测到宕机时，分发到各client复检
+    Ping,               //存活检查
+    SetVariables,
+    RecoveryVariables,
     Ok,
     Error,
     UnKnow
@@ -51,7 +56,7 @@ impl MyProtocol {
         }else if code == &0xf9 {
             return MyProtocol::ChangeMaster;
         }else if code == &0xf8 {
-            return MyProtocol::SyncBinlog;
+            return MyProtocol::PullBinlog;
         }else if code == &0xf7 {
             return MyProtocol::RecoveryCluster;
         }else if code == &0x00 {
@@ -64,6 +69,16 @@ impl MyProtocol {
             return MyProtocol::ReplicationStatus;
         }else if code == &0xf4 {
             return MyProtocol::DownNodeCheck;
+        }else if code == &0xf3 {
+            return MyProtocol::GetRecoveryInfo;
+        }else if code == &0x04 {
+            return MyProtocol::SetVariables;
+        }else if code == &0x03 {
+            return MyProtocol::RecoveryVariables;
+        }else if code == &0xf2 {
+            return MyProtocol::PushBinlog;
+        }else if code == &0x01 {
+            return MyProtocol::Ping;
         }
         else {
             return MyProtocol::UnKnow;
@@ -78,20 +93,37 @@ impl MyProtocol {
             MyProtocol::GetAuditLog => 0xfb,
             MyProtocol::SetMaster => 0xfa,
             MyProtocol::ChangeMaster => 0xf9,
-            MyProtocol::SyncBinlog => 0xf8,
+            MyProtocol::PullBinlog => 0xf8,
+            MyProtocol::PushBinlog => 0xf2,
             MyProtocol::RecoveryCluster => 0xf7,
             MyProtocol::Ok => 0x00,
             MyProtocol::Error => 0x09,
             MyProtocol::RecoveryValue => 0xf6,
             MyProtocol::ReplicationStatus => 0xf5,
             MyProtocol::DownNodeCheck => 0xf4,
+            MyProtocol::GetRecoveryInfo => 0xf3,
+            MyProtocol::SetVariables => 0x04,
+            MyProtocol::RecoveryVariables => 0x03,
+            MyProtocol::Ping => 0x01,
             MyProtocol::UnKnow => 0xff
         }
     }
-
 }
 
-#[derive(Serialize)]
+///
+/// 用于空包
+///
+#[derive(Serialize, Deserialize)]
+pub struct Null {
+    default: usize,
+}
+impl Null {
+    pub fn new() -> Null {
+        Null{ default: 0 }
+    }
+}
+
+#[derive(Serialize, Debug, Deserialize)]
 pub struct ReponseErr{
     pub err: String
 }
@@ -104,7 +136,7 @@ impl ReponseErr {
     }
 }
 
-pub fn send_error_packet(value: &ReponseErr, mut tcp: &TcpStream) -> Result<(), std::io::Error> {
+pub fn send_error_packet(value: &ReponseErr, mut tcp: &TcpStream) -> Result<(), Box<dyn Error>> {
     let value = serde_json::to_string(value)?;
     let mut buf = header(0x09, value.len() as u64);
     buf.extend(value.as_bytes());
@@ -113,20 +145,12 @@ pub fn send_error_packet(value: &ReponseErr, mut tcp: &TcpStream) -> Result<(), 
     Ok(())
 }
 
-pub fn write_value<T: Serialize>(mut tcp: &TcpStream, value: &T) -> Result<(), std::io::Error> {
-    let mut buf: Vec<u8> = vec![];
-    let value = serde_json::to_string(value).unwrap();
-    buf.extend(crate::readvalue::write_u64(value.len() as u64));
-    buf.extend(value.as_bytes());
-    tcp.write(buf.as_ref())?;
-    tcp.flush()?;
-    Ok(())
-}
-
 pub fn send_ok_packet(mut tcp: &TcpStream) -> Result<(), std::io::Error> {
-    let mut buf: Vec<u8> = vec![];
-    buf.push(0x09);
-    tcp.write(buf.as_ref())?;
+    let null_packet = Null::new();
+    let value = serde_json::to_string(&null_packet)?;
+    let mut buf = header(MyProtocol::Ok.get_code(), value.len() as u64);
+    buf.extend(value.as_bytes());
+    tcp.write(&buf)?;
     tcp.flush()?;
     Ok(())
 }
@@ -135,7 +159,7 @@ pub fn send_value_packet<T: Serialize>(mut tcp: &TcpStream, value: &T, type_code
     let value = serde_json::to_string(value)?;
     let mut buf = header(type_code.get_code(), value.len() as u64);
     buf.extend(value.as_bytes());
-    tcp.write(buf.as_ref())?;
+    tcp.write(&buf)?;
     tcp.flush()?;
     Ok(())
 }
@@ -182,11 +206,15 @@ pub fn set_readonly(tcp: &mut TcpStream) -> Result<(), Box<dyn Error>> {
 }
 
 pub fn set_no_readonly(tcp: &mut TcpStream) -> Result<(), Box<dyn Error>> {
+    info!("set variables...");
     let set_read_only = String::from("set global read_only=0;");
     let set_sync_binlog = String::from("set global sync_binlog=1;");
     let set_flush_redo = String::from("set global innodb_flush_log_at_trx_commit=1;");
+    info!("{}", &set_read_only);
     crate::io::command::execute_update(tcp, &set_read_only)?;
+    info!("{}", &set_sync_binlog);
     crate::io::command::execute_update(tcp, &set_sync_binlog)?;
+    info!("{}", &set_flush_redo);
     crate::io::command::execute_update(tcp, &set_flush_redo)?;
     Ok(())
 }
@@ -196,13 +224,13 @@ pub fn check_state(state: &Result<(), Box<dyn Error>>) {
     match state {
         Ok(()) => {}
         Err(e) => {
-            println!("{:?}",e);
+            info!("{:?}",e);
         }
     }
 }
 
 
-fn conn(host_info: &str) -> Result<TcpStream, Box<dyn Error>> {
+pub fn conn(host_info: &str) -> Result<TcpStream, Box<dyn Error>> {
     let host_info = host_info.split(":");
     let host_vec = host_info.collect::<Vec<&str>>();
     let port = host_vec[1].to_string().parse::<u16>()?;
@@ -214,7 +242,7 @@ fn conn(host_info: &str) -> Result<TcpStream, Box<dyn Error>> {
     }
     let addrs = SocketAddr::from((IpAddr::V4(Ipv4Addr::new(ip_info[0], ip_info[1], ip_info[2], ip_info[3])), port));
     //let tcp_conn = TcpStream::connect(host_info)?;
-    let tcp_conn = TcpStream::connect_timeout(&addrs, Duration::new(2,5))?;
+    let tcp_conn = TcpStream::connect_timeout(&addrs, Duration::new(1,0))?;
     tcp_conn.set_read_timeout(Some(Duration::new(10,10)))?;
     tcp_conn.set_write_timeout(Some(Duration::new(10,10)))?;
     Ok(tcp_conn)

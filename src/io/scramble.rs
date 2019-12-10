@@ -23,7 +23,7 @@ pub fn get_sha1_pass(conf: &Config, auth_plugin_name: &String, auth_plugin_data:
 
         };
     }
-    println!("不支持的密码校验方法：{}", auth_plugin_name);
+    info!("不支持的密码校验方法：{}", auth_plugin_name);
     process::exit(1);
 }
 

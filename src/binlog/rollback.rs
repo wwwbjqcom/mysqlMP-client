@@ -94,7 +94,7 @@ fn update_event<R: Read+Seek>(event: &mut R, map: &TableMap, event_header: &Even
             after_bytes = vec![];
         }
 
-        if (event.tell().unwrap() + 4) as usize > event_header.event_length as usize {
+        if (event.tell().unwrap() + 4) as usize >= event_header.event_length as usize {
             let mut a = vec![];
             event.read_to_end(&mut a).unwrap();
             if a.len() > 0 {
@@ -180,20 +180,22 @@ fn parese_row_bytes<R: Read + Tell>(buf: &mut R, type_code: &ColumnTypeDict, col
             row_bytes.extend(var_bytes);
         }
         ColumnTypeDict::MysqlTypeString => {
-            let mut value_length = 0;
+            //let mut value_length = 0;
             //println!("aa:{},{}",col_meta[0],buf.tell().unwrap());
             if col_meta[0] <= 255 {
-                value_length = buf.read_u8().unwrap() as usize;
+                let value_length = buf.read_u8().unwrap() as usize;
                 row_bytes.push(value_length as u8);
+                tmp = vec![0u8; value_length];
             }
             else {
                 let mut var_bytes = [0u8; 2];
                 buf.read_exact(&mut var_bytes).unwrap();
                 row_bytes.extend(&var_bytes);
                 buf.seek(SeekFrom::Current(-2)).unwrap();
-                value_length = buf.read_u16::<LittleEndian>().unwrap() as usize;
+                let value_length = buf.read_u16::<LittleEndian>().unwrap() as usize;
+                tmp = vec![0u8; value_length];
             }
-            tmp = vec![0u8; value_length];
+            //tmp = vec![0u8; value_length];
         }
         ColumnTypeDict::MysqlTypeEnum |
         ColumnTypeDict::MysqlTypeSet => {
