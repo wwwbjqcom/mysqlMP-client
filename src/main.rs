@@ -17,6 +17,10 @@ fn main() {
 
     mymha_client::start(conf);
 
+//    let sqls = CommandSql{ sqls: vec!["insert into xz_test.t1 values(1),(2),(3)".to_string()] };
+//    test(&conf, &sqls).unwrap()
+
+
 //    let listener = TcpListener::bind("127.0.0.1:80")?;
 //
 //    // accept connections and process them serially

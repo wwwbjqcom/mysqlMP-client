@@ -15,6 +15,7 @@ pub mod setmaster;
 pub mod changemaster;
 pub mod recovery;
 pub mod nodecheck;
+pub mod push_sql;
 use serde::{Serialize, Deserialize};
 use std::error::Error;
 use std::time::Duration;
@@ -37,6 +38,7 @@ pub enum  MyProtocol {
     Ping,               //存活检查
     SetVariables,
     RecoveryVariables,
+    Command,            //执行追加sql
     Ok,
     Error,
     UnKnow
@@ -79,6 +81,8 @@ impl MyProtocol {
             return MyProtocol::PushBinlog;
         }else if code == &0x01 {
             return MyProtocol::Ping;
+        }else if code == &0x05 {
+            return MyProtocol::Command;
         }
         else {
             return MyProtocol::UnKnow;
@@ -105,6 +109,7 @@ impl MyProtocol {
             MyProtocol::SetVariables => 0x04,
             MyProtocol::RecoveryVariables => 0x03,
             MyProtocol::Ping => 0x01,
+            MyProtocol::Command => 0x05,
             MyProtocol::UnKnow => 0xff
         }
     }

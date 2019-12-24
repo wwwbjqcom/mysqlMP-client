@@ -46,10 +46,6 @@ impl RecoveryInfo {
                     let sql = &sqls.sqls[traction_len - indx - 1].rollback_sql;
                     match_state(self.recovery_traction(&mut tcp, sql))?;
                 }
-//                for traction in &sqls.sqls{
-//                    let sql = &traction.rollback_sql;
-//                    match_state(self.recovery_traction(&mut tcp, sql))?;
-//                }
                 match_state(self.change_master(&mut tcp, conf))?;
                 match_state(crate::mysql::set_readonly(&mut tcp))?;
                 return Ok(())

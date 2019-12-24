@@ -315,6 +315,15 @@ fn handle_stream(mut tcp: TcpStream, conf: Arc<Config>) {
                     let state = mysql::nodecheck::check_down_node(&mut tcp, &conf, &buf);
                     mysql::check_state(&state);
                 }
+                mysql::MyProtocol::Command => {
+                    if let Err(e) = mysql::push_sql::push_sql_to_db(&mut tcp, &conf, &buf){
+                        info!("{}", &e.to_string());
+                        let state = mysql::send_error_packet(&ReponseErr::new(e.to_string()), &mut tcp);
+                        mysql::check_state(&state);
+                    }
+
+                }
+
                 mysql::MyProtocol::UnKnow => {
                     let err = ReponseErr{err:String::from("Invalid type_code")};
                     //let value = serde_json::to_string(&err).unwrap();
