@@ -4,7 +4,7 @@
 */
 
 
-use crate::Config;
+use crate::{Config, mysql};
 use std::sync::{Arc};
 use std::net::TcpStream;
 use serde::{Deserialize, Serialize};
@@ -15,13 +15,21 @@ use std::error::Error;
 pub struct MysqlState {
     pub online: bool,
     pub role: String,
+    pub master: String,
     pub sql_thread: bool,
     pub io_thread: bool,
     pub seconds_behind: usize,
     pub master_log_file: String,
     pub read_master_log_pos: usize,
     pub exec_master_log_pos: usize,
-    pub error: String
+    pub read_only: bool,
+    pub version: String,
+    pub executed_gtid_set: String,
+    pub innodb_flush_log_at_trx_commit: usize,
+    pub sync_binlog: usize,
+    pub server_id: usize,
+    pub event_scheduler: String,
+    pub sql_error: String
 }
 
 impl MysqlState {
@@ -29,13 +37,21 @@ impl MysqlState {
         MysqlState{
             online: false,
             role: "".to_string(),
+            master: "".to_string(),
             sql_thread: false,
             io_thread: false,
             seconds_behind: 0,
             master_log_file: "".to_string(),
             read_master_log_pos: 0,
             exec_master_log_pos: 0,
-            error: "".to_string()
+            read_only: false,
+            version: "".to_string(),
+            executed_gtid_set: "".to_string(),
+            innodb_flush_log_at_trx_commit: 0,
+            sync_binlog: 0,
+            server_id: 0,
+            event_scheduler: "OFF".to_string(),
+            sql_error: "".to_string()
         }
     }
 
@@ -76,51 +92,95 @@ impl MysqlState {
         if let Some(exec_pos) = result.get(&String::from("Exec_Master_Log_Pos")){
             self.exec_master_log_pos = exec_pos.parse()?;
         }
+        if let Some(sql_err) = result.get(&String::from("Slave_SQL_Running_State")){
+            self.sql_error = sql_err.parse()?;
+        }
+        if let Some(master_host) = result.get(&String::from("Master_Host")){
+            self.master = master_host.parse()?;
+        }
+        Ok(())
+    }
 
+    pub fn slave_state_check(&mut self, tcp: &mut TcpStream) -> Result<(), Box<dyn Error>> {
+        let sql = "show slave status;";
+        let result= crate::io::command::execute(tcp, &sql.to_string())?;
+        if result.len() > 0 {
+            mysql::check_state(&self.update(&result[0]));
+        }else {
+            self.role = String::from("master");
+        }
+        Ok(())
+    }
+
+    pub fn variable_check(&mut self, tcp: &mut TcpStream) -> Result<(), Box<dyn Error>> {
+        let sql = String::from("select @@read_only as read_only,\
+                                            @@sync_binlog as sync_binlog,\
+                                            @@innodb_flush_log_at_trx_commit as innodb_flush_log_at_trx_commit,\
+                                            @@version as version,\
+                                            @@server_id as server_id,\
+                                            @@event_scheduler;");
+        let result= crate::io::command::execute(tcp, &sql)?;
+        if result.len() > 0 {
+            mysql::check_state(&self.update_variable(&result[0]));
+        }
+        Ok(())
+    }
+
+    pub fn update_variable(&mut self, result: &HashMap<String, String>) -> Result<(), Box<dyn Error>> {
+        if let Some(v) = result.get(&String::from("read_only")){
+            let a: u8 = v.parse()?;
+            if a == 1{
+             self.read_only = true;
+            }else {
+             self.read_only = false;
+            }
+        }
+        if let Some(v) = result.get(&String::from("sync_binlog")){
+            self.sync_binlog = v.parse()?;
+        }
+
+        if let Some(v) = result.get(&String::from("innodb_flush_log_at_trx_commit")){
+            self.innodb_flush_log_at_trx_commit = v.parse()?;
+        }
+
+        if let Some(v) = result.get(&String::from("version")){
+            let version = v.split("-");
+            let vv = version.collect::<Vec<&str>>();
+            self.version = vv[0].to_string();
+        }
+        if let Some(v) = result.get(&String::from("server_id")){
+            self.server_id = v.parse()?;
+        }
+        if let Some(v) = result.get(&String::from("event_scheduler")){
+            self.event_scheduler = v.parse()?;
+        }
+        Ok(())
+    }
+
+    pub fn gtid_check(&mut self, tcp: &mut TcpStream) -> Result<(), Box<dyn Error>> {
+        let sql = String::from("show master status");
+        let result= crate::io::command::execute(tcp, &sql)?;
+        if result.len() > 0 {
+            if let Some(v) = result[0].get(&String::from("Executed_Gtid_Set")){
+                let v: String = v.parse()?;
+                self.executed_gtid_set = v.replace("\n","");
+            }
+        }
         Ok(())
     }
 }
 
-pub fn mysql_state_check(conf: Arc<Config>) -> MysqlState {
+pub fn mysql_state_check(tcp: &TcpStream, conf: Arc<Config>) -> Result<(), Box<dyn Error>> {
     let mut state = MysqlState::new();
-    let conn = crate::create_conn(&conf);
-    match conn {
-        Ok(mut tcp) => {
-            state.online = true;
-            slave_state_check(&mut tcp, &mut state);
-        }
-        Err(e) => {
-            info!("{:?}",e);
-            state.online = false;
-        }
-    }
-    return state;
-    //sleep 1 seconds
-//    use std::{thread, time};
-//    let ten_millis = time::Duration::from_secs(1);
-//    thread::sleep(ten_millis);
-
+    let mut conn = crate::create_conn(&conf)?;
+    state.online = true;
+    state.slave_state_check(&mut conn)?;
+    state.variable_check(&mut conn)?;
+    state.gtid_check(&mut conn)?;
+    mysql::send_value_packet(&tcp, &state, mysql::MyProtocol::MysqlCheck)?;
+    Ok(())
 }
 
-fn slave_state_check(tcp: &mut TcpStream, state: &mut MysqlState) {
-    let sql = "show slave status;";
-    let result= crate::io::command::execute(tcp, &sql.to_string());
-    match result {
-        Ok(result) => {
-            //info!("{:?}", result);
-            if result.len() > 0 {
-                if let Err(e) = state.update(&result[0]){
-                    info!("{:?}", e.to_string());
-                };
-            }else {
-                state.role = String::from("master");
-            }
-        }
-        Err(e) => {
-            state.error = (*e.to_string()).parse().unwrap();
-        }
-    }
 
-}
 
 

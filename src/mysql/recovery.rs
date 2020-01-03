@@ -178,7 +178,8 @@ impl GetRecoveryInfo {
                     self.position = v.parse()?;
                 }
                 if let Some(v) = row.get(&String::from("Executed_Gtid_Set")){
-                    self.gtid = v.parse()?;
+                    let v: String = v.parse()?;
+                    self.gtid = v.replace("\n","");
                 }
             }
         }

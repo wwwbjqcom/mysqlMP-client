@@ -15,7 +15,7 @@ use pool::ThreadPool;
 use structopt::StructOpt;
 use std::sync::{Arc};
 use std::net::{TcpListener, TcpStream};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::mysql::ReponseErr;
 
 #[macro_use]
@@ -48,6 +48,15 @@ fn init_log() {
         .build(Root::builder().appender("requests").build(LevelFilter::Info))
         .unwrap();
     log4rs::init_config(config).unwrap();
+}
+
+pub fn timestamp() -> i64 {
+    let start = SystemTime::now();
+    let since_the_epoch = start
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards");
+    let ms = since_the_epoch.as_secs() as i64 * 1000i64 + (since_the_epoch.subsec_nanos() as f64 / 1_000_000.0) as i64;
+    ms
 }
 
 #[derive(Debug, StructOpt)]
@@ -243,23 +252,29 @@ fn handle_stream(mut tcp: TcpStream, conf: Arc<Config>) {
             //println!("{:?},{:?}",buf[0],type_code);
             match type_code {
                 mysql::MyProtocol::MysqlCheck => {
-                    let mysql_status = mysql::state_check::mysql_state_check(conf);
-                    let state = mysql::send_value_packet(&tcp, &mysql_status, mysql::MyProtocol::MysqlCheck);
-                    match state {
-                        Ok(()) => {}
-                        Err(e) => {
-                            info!("{}",e.to_string());
-                        }
-                    }
+                    if let Err(e) = mysql::state_check::mysql_state_check(&tcp, conf){
+                        let state = mysql::send_error_packet(&ReponseErr::new(e.to_string()), &mut tcp);
+                        info!("{}",e.to_string());
+                        mysql::check_state(&state);
+                        return;
+                    };
                 }
                 mysql::MyProtocol::GetSlowLog => {}
                 mysql::MyProtocol::GetAuditLog => {}
-                mysql::MyProtocol::GetMonitor => {}
+                mysql::MyProtocol::GetMonitor => {
+                    if let Err(e) = mysql::monitor::mysql_monitor(&tcp, &conf){
+                        let state = mysql::send_error_packet(&ReponseErr::new(e.to_string()), &mut tcp);
+                        info!("{}",e.to_string());
+                        mysql::check_state(&state);
+                        return;
+                    }
+
+                }
                 mysql::MyProtocol::SetVariables => {
                     if let Err(e) = mysql::changemaster::set_variabels(&mut tcp, &conf){
                         let state = mysql::send_error_packet(&ReponseErr::new(e.to_string()), &mut tcp);
-                        mysql::check_state(&state);
                         info!("{}",e.to_string());
+                        mysql::check_state(&state);
                         return;
                     };
                 }
