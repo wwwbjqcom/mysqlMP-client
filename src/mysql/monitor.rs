@@ -76,80 +76,86 @@ impl MysqlMonitorStatus{
 
 
 
-    pub fn parse_value(&mut self, result: &HashMap<String,String>) -> Result<(), Box<dyn Error>> {
+    pub fn parse_value(&mut self, result: &Vec<HashMap<String,String>>) -> Result<(), Box<dyn Error>> {
         self.time = crate::timestamp();
-        if let Some(v) = result.get(&String::from("com_insert")){
-            self.com_insert = v.parse()?;
+        for row in result{
+            let var_name = row.get(&String::from("Variable_name")).unwrap();
+            let value = row.get(&String::from("Value")).unwrap();
+            //info!("{},{}", &var_name, &value);
+            if var_name == &String::from("Com_insert"){
+                self.com_insert = value.parse()?;
+            }
+            else if var_name ==  &String::from("Com_update"){
+                self.com_update = value.parse()?;
+            }
+            else if var_name == &String::from("Com_delete"){
+                self.com_delete = value.parse()?;
+            }
+            else if var_name ==  &String::from("Com_select"){
+                self.com_select = value.parse()?;
+            }
+            else if var_name == &String::from("Questions"){
+                self.questions = value.parse()?;
+            }
+            else if var_name ==  &String::from("Innodb_row_lock_current_waits"){
+                self.innodb_row_lock_current_waits = value.parse()?;
+            }
+            else if var_name == &String::from("Innodb_row_lock_time"){
+                self.innodb_row_lock_time = value.parse()?;
+            }
+            else if var_name == &String::from("Created_tmp_disk_tables"){
+                self.created_tmp_disk_tables = value.parse()?;
+            }
+            else if var_name == &String::from("Created_tmp_tables"){
+                self.created_tmp_tables = value.parse()?;
+            }
+            else if var_name == &String::from("Innodb_buffer_pool_reads"){
+                self.innodb_buffer_pool_reads = value.parse()?;
+            }
+            else if var_name == &String::from("Innodb_buffer_pool_read_requests"){
+                self.innodb_buffer_pool_read_requests = value.parse()?;
+            }
+            else if var_name == &String::from("Handler_read_first"){
+                self.handler_read_first = value.parse()?;
+            }
+            else if var_name == &String::from("Handler_read_key"){
+                self.handler_read_key = value.parse()?;
+            }
+            else if var_name == &String::from("Handler_read_next"){
+                self.handler_read_next = value.parse()?;
+            }
+            else if var_name == &String::from("Handler_read_prev"){
+                self.handler_read_prev = value.parse()?;
+            }
+            else if var_name == &String::from("Handler_read_rnd"){
+                self.handler_read_rnd = value.parse()?;
+            }
+            else if var_name == &String::from("Handler_read_rnd_next"){
+                self.handler_read_rnd_next = value.parse()?;
+            }
+            else if var_name == &String::from("Innodb_os_log_pending_fsyncs"){
+                self.innodb_os_log_pending_fsyncs = value.parse()?;
+            }
+            else if var_name == &String::from("Innodb_os_log_pending_writes"){
+                self.innodb_os_log_pending_writes = value.parse()?;
+            }
+            else if var_name == &String::from("Innodb_log_waits"){
+                self.innodb_log_waits = value.parse()?;
+            }
+            else if var_name == &String::from("Threads_connected"){
+                self.threads_connected = value.parse()?;
+            }
+            else if var_name == &String::from("Threads_running"){
+                self.threads_running = value.parse()?;
+            }
+            else if var_name == &String::from("Bytes_sent"){
+                self.bytes_sent = value.parse()?;
+            }
+            else if var_name == &String::from("Bytes_received"){
+                self.bytes_received = value.parse()?;
+            }
         }
-        if let Some(v) = result.get(&String::from("com_update")){
-            self.com_update = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("com_delete")){
-            self.com_delete = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("com_select")){
-            self.com_select = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("questions")){
-            self.questions = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("innodb_row_lock_current_waits")){
-            self.innodb_row_lock_current_waits = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("innodb_row_lock_time")){
-            self.innodb_row_lock_time = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("created_tmp_disk_tables")){
-            self.created_tmp_disk_tables = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("created_tmp_tables")){
-            self.created_tmp_tables = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("innodb_buffer_pool_reads")){
-            self.innodb_buffer_pool_reads = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("innodb_buffer_pool_read_requests")){
-            self.innodb_buffer_pool_read_requests = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("handler_read_first")){
-            self.handler_read_first = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("handler_read_key")){
-            self.handler_read_key = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("handler_read_next")){
-            self.handler_read_next = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("handler_read_prev")){
-            self.handler_read_prev = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("handler_read_rnd")){
-            self.handler_read_rnd = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("handler_read_rnd_next")){
-            self.handler_read_rnd_next = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("innodb_os_log_pending_fsyncs")){
-            self.innodb_os_log_pending_fsyncs = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("innodb_os_log_pending_writes")){
-            self.innodb_os_log_pending_writes = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("innodb_log_waits")){
-            self.innodb_log_waits = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("threads_connected")){
-            self.threads_connected = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("threads_running")){
-            self.threads_running = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("bytes_sent")){
-            self.bytes_sent = v.parse()?;
-        }
-        if let Some(v) = result.get(&String::from("bytes_received")){
-            self.bytes_received = v.parse()?;
-        }
+
         Ok(())
     }
 
@@ -161,7 +167,7 @@ pub fn mysql_monitor(tcp: &TcpStream, conf: &Arc<Config>) -> Result<(), Box<dyn 
     let mut mysql_status = MysqlMonitorStatus::new();
     let result = crate::io::command::execute(&mut conn, &"show global status".to_string())?;
     if result.len() > 0{
-        mysql_status.parse_value(&result[0])?;
+        mysql_status.parse_value(&result)?;
     }
     crate::mysql::send_value_packet(tcp, &mysql_status, MyProtocol::GetMonitor)?;
     Ok(())
