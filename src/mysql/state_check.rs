@@ -29,7 +29,9 @@ pub struct MysqlState {
     pub sync_binlog: usize,
     pub server_id: usize,
     pub event_scheduler: String,
-    pub sql_error: String
+    pub innodb_buffer_pool_size: usize,
+    pub last_sql_error: String,
+    pub last_io_error: String,
 }
 
 impl MysqlState {
@@ -51,7 +53,9 @@ impl MysqlState {
             sync_binlog: 0,
             server_id: 0,
             event_scheduler: "OFF".to_string(),
-            sql_error: "".to_string()
+            innodb_buffer_pool_size: 0,
+            last_sql_error: "".to_string(),
+            last_io_error: "".to_string(),
         }
     }
 
@@ -92,8 +96,11 @@ impl MysqlState {
         if let Some(exec_pos) = result.get(&String::from("Exec_Master_Log_Pos")){
             self.exec_master_log_pos = exec_pos.parse()?;
         }
-        if let Some(sql_err) = result.get(&String::from("Slave_SQL_Running_State")){
-            self.sql_error = sql_err.parse()?;
+        if let Some(io_err) = result.get(&String::from("Last_IO_Error")){
+            self.last_io_error = io_err.parse()?;
+        }
+        if let Some(sql_err) = result.get(&String::from("Last_SQL_Error")){
+            self.last_sql_error = sql_err.parse()?;
         }
         if let Some(master_host) = result.get(&String::from("Master_Host")){
             self.master = master_host.parse()?;
@@ -118,7 +125,8 @@ impl MysqlState {
                                             @@innodb_flush_log_at_trx_commit as innodb_flush_log_at_trx_commit,\
                                             @@version as version,\
                                             @@server_id as server_id,\
-                                            @@event_scheduler;");
+                                            @@event_scheduler,\
+                                            @@innodb_buffer_pool_size;");
         let result= crate::io::command::execute(tcp, &sql)?;
         if result.len() > 0 {
             mysql::check_state(&self.update_variable(&result[0]));
@@ -154,6 +162,9 @@ impl MysqlState {
         if let Some(v) = result.get(&String::from("event_scheduler")){
             self.event_scheduler = v.parse()?;
         }
+        if let Some(pool_size) = result.get(&String::from("innodb_buffer_pool_size")){
+            self.innodb_buffer_pool_size = pool_size.parse()?;
+        }
         Ok(())
     }
 
@@ -172,11 +183,19 @@ impl MysqlState {
 
 pub fn mysql_state_check(tcp: &TcpStream, conf: Arc<Config>) -> Result<(), Box<dyn Error>> {
     let mut state = MysqlState::new();
-    let mut conn = crate::create_conn(&conf)?;
-    state.online = true;
-    state.slave_state_check(&mut conn)?;
-    state.variable_check(&mut conn)?;
-    state.gtid_check(&mut conn)?;
+    let tcp_conn = crate::create_conn(&conf);
+    match tcp_conn {
+        Ok(mut conn) => {
+            state.online = true;
+            state.slave_state_check(&mut conn)?;
+            state.variable_check(&mut conn)?;
+            state.gtid_check(&mut conn)?;
+            crate::io::command::close(&mut conn);
+        }
+        Err(e) => {
+            info!("{:?}", e.to_string());
+        }
+    }
     mysql::send_value_packet(&tcp, &state, mysql::MyProtocol::MysqlCheck)?;
     Ok(())
 }

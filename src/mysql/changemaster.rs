@@ -13,6 +13,7 @@ use crate::mysql::{ReponseErr};
 pub struct ChangeMasterInfo{
     pub master_host: String,
     pub master_port: usize,
+    pub gtid_set: String,
 }
 
 pub fn change_master(mut tcp: &TcpStream, conf: &Arc<Config>, buf: &Vec<u8>) -> Result<(), Box<dyn Error>> {
@@ -45,6 +46,8 @@ pub fn change_master(mut tcp: &TcpStream, conf: &Arc<Config>, buf: &Vec<u8>) -> 
 fn change_master_info(tcp: &mut TcpStream, conf: &Arc<Config>, change_info: &ChangeMasterInfo) -> Result<(), Box<dyn Error>>{
     let stop_slave = String::from("stop slave for channel 'default';");
     let reset_slave_sql = String::from("reset slave for channel 'default';");
+    let reset_master_sql = String::from("reset master;");
+    let set_gtid_sql = format!("set global gtid_purged = '{}'", &change_info.gtid_set);
     let change_sql = format!("change master to master_host='{}',\
                                 master_port={},master_user='{}',\
                                 master_password='{}',\
@@ -59,6 +62,10 @@ fn change_master_info(tcp: &mut TcpStream, conf: &Arc<Config>, change_info: &Cha
     if let Err(e) = crate::io::command::execute_update(tcp, &reset_slave_sql){
         info!("{}",e.to_string());
     };
+    info!("{}", &reset_master_sql);
+    crate::io::command::execute_update(tcp, &reset_master_sql)?;
+    info!("{}", &set_gtid_sql);
+    crate::io::command::execute_update(tcp, &set_gtid_sql)?;
     info!("{}", &change_sql);
     crate::io::command::execute_update(tcp, &change_sql)?;
     info!("start slave");

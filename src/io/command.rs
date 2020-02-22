@@ -114,6 +114,18 @@ pub fn execute_update(conn: &mut TcpStream,sql: &String) -> Result<(), Box<dyn E
 
 }
 
+pub fn close(conn: &mut TcpStream) {
+    let mut pack = vec![];
+    let mut payload = vec![];
+    payload.push(0x01);
+    let header = response::pack_header(&payload,0);
+    pack.extend(header);
+    pack.extend(payload);
+    if let Err(e) = socketio::write_value(conn, &pack){
+        info!("{}", e.to_string());
+    };
+}
+
 //组装COM_Query包
 fn commquery(sql: &String) -> Vec<u8>{
     let mut pack = vec![];

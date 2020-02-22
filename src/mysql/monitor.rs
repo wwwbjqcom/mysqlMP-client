@@ -40,6 +40,7 @@ pub struct MysqlMonitorStatus{
     pub threads_running: usize,
     pub bytes_sent: usize,
     pub bytes_received: usize,
+    pub slow_queries: usize,
     pub time: i64
 }
 
@@ -70,6 +71,7 @@ impl MysqlMonitorStatus{
             threads_running: 0,
             bytes_sent: 0,
             bytes_received: 0,
+            slow_queries: 0,
             time: 0
         }
     }
@@ -154,6 +156,9 @@ impl MysqlMonitorStatus{
             else if var_name == &String::from("Bytes_received"){
                 self.bytes_received = value.parse()?;
             }
+            else if var_name == &String::from("Slow_queries") {
+                self.slow_queries = value.parse()?;
+            }
         }
 
         Ok(())
@@ -168,7 +173,11 @@ pub fn mysql_monitor(tcp: &TcpStream, conf: &Arc<Config>) -> Result<(), Box<dyn 
     let result = crate::io::command::execute(&mut conn, &"show global status".to_string())?;
     if result.len() > 0{
         mysql_status.parse_value(&result)?;
+        crate::io::command::close(&mut conn);
+        crate::mysql::send_value_packet(tcp, &mysql_status, MyProtocol::GetMonitor)?;
+    }else {
+        let err = String::from("get global status failed");
+        return Err(err.into())
     }
-    crate::mysql::send_value_packet(tcp, &mysql_status, MyProtocol::GetMonitor)?;
     Ok(())
 }

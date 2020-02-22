@@ -32,6 +32,7 @@ impl RecoveryInfo {
     fn recovery_replication(&self, conf: &Arc<Config>) -> Result<(), Box<dyn Error>> {
         let mut conn = crate::create_conn(conf)?;
         self.change_master(&mut conn, conf)?;
+        crate::mysql::set_readonly(&mut conn)?;
         Ok(())
     }
     ///
