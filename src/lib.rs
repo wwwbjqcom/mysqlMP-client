@@ -205,6 +205,8 @@ impl Config{
 
     pub fn alter_host(&mut self, host_info: String) {
         self.host_info = host_info;
+        self.user_name = self.repl_user.clone();
+        self.password = self.repl_passwd.clone();
     }
 }
 
@@ -364,6 +366,31 @@ fn handle_stream(mut tcp: TcpStream, conf: Arc<Config>) {
 
 
 fn create_conn(config: &Config) -> Result<TcpStream, Box<dyn Error>> {
-    let conn = io::connection::create_mysql_conn(config)?;
-    return Ok(conn);
+    let mut mysql_connection_info = io::connection::MysqlConnection::new(config)?;
+    if let Err(e) = mysql_connection_info.create(config){
+        info!("create mysql connection error: {:?}", e);
+        let a: Box<dyn Error> = e.into();
+        return Err(a);
+    }
+    if mysql_connection_info.status{
+        return Ok(mysql_connection_info.conn);
+    }else {
+        info!("create mysql connection error: {}", &mysql_connection_info.error);
+        let a: Box<dyn Error> = mysql_connection_info.error.into();
+        return Err(a);
+    }
+
+
+
+//    let connection_info = io::connection::create_mysql_conn(config);
+//    match connection_info {
+//        Ok(conn) => Ok(conn),
+//        Err(e) => {
+//            info!("create mysql connection error: {:?}", e);
+//            let a: Box<dyn Error> = e.into();
+//            return Err(a);
+//        }
+//    }
+//    let conn = io::connection::create_mysql_conn(config)?;
+//    return Ok(conn);
 }

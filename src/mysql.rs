@@ -201,12 +201,19 @@ fn header(code: u8, payload: u64) -> Vec<u8> {
 
 
 pub fn set_readonly(tcp: &mut TcpStream) -> Result<(), Box<dyn Error>> {
+    info!("set readonly variables....");
     let set_read_only = String::from("set global read_only=1;");
+    let set_no_super_read_only = String::from("set global super_read_only=0;");
     let set_sync_binlog = String::from("set global sync_binlog=0;");
     let set_flush_redo = String::from("set global innodb_flush_log_at_trx_commit=0;");
     crate::io::command::execute_update(tcp, &set_read_only)?;
+    info!("{}", &set_read_only);
+    crate::io::command::execute_update(tcp, &set_no_super_read_only)?;
+    info!("{}", &set_no_super_read_only);
     crate::io::command::execute_update(tcp, &set_sync_binlog)?;
+    info!("{}", set_sync_binlog);
     crate::io::command::execute_update(tcp, &set_flush_redo)?;
+    info!("{}", &set_flush_redo);
     Ok(())
 }
 
@@ -234,7 +241,8 @@ pub fn check_state(state: &Result<(), Box<dyn Error>>) {
     }
 }
 
-
+///
+/// 建立socket连接
 pub fn conn(host_info: &str) -> Result<TcpStream, Box<dyn Error>> {
     let host_info = host_info.split(":");
     let host_vec = host_info.collect::<Vec<&str>>();

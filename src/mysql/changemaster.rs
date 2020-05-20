@@ -78,6 +78,9 @@ fn change_master_info(tcp: &mut TcpStream, conf: &Arc<Config>, change_info: &Cha
 pub fn set_variabels(tcp: &mut TcpStream, conf: &Arc<Config>) -> Result<(), Box<dyn Error>> {
     let mut conn = crate::create_conn(conf)?;
     crate::mysql::set_readonly(&mut conn)?;
+    let set_super_read_only = String::from("set global super_read_only=1;");
+    info!("{}", &set_super_read_only);
+    crate::io::command::execute_update(&mut conn, &set_super_read_only)?;
     crate::mysql::send_ok_packet(tcp)?;
     Ok(())
 }

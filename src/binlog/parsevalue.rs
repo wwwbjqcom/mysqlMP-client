@@ -140,7 +140,7 @@ impl RowValue{
 
             }
         }
-        let mut rows: Vec<Vec<Option<MySQLValue>>> = vec![];;
+        let mut rows: Vec<Vec<Option<MySQLValue>>> = vec![];
         loop {
             let mut null_bit = vec![0u8; columns_length as usize];
             buf.read_exact(&mut null_bit).unwrap();

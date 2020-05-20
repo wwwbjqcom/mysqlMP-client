@@ -69,6 +69,7 @@ pub fn check_down_node(tcp: &mut TcpStream,conf: &Arc<Config>, buf: &Vec<u8>) ->
             return Ok(());
         }
         Err(e) => {
+            info!("error: {:?}", e);
             node_state.set_client_status();
         }
     }
@@ -77,9 +78,13 @@ pub fn check_down_node(tcp: &mut TcpStream,conf: &Arc<Config>, buf: &Vec<u8>) ->
     let host_vec = host_info.collect::<Vec<&str>>();
     let host_info = format!("{}:{}",host_vec[0],value.dbport);
     new_conf.alter_host(host_info);
-    //info!("{:?}",new_conf);
-    if let Err(_e) = crate::create_conn(&new_conf) {
-        node_state.set_db_status();
+    info!("{:?}",new_conf);
+    if let Err(e) = crate::create_conn(&new_conf) {
+        let a = e.to_string();
+        if !a.contains("many connections"){
+            node_state.set_db_status();
+        }
+
     }
     info!("{:?}",node_state);
     crate::mysql::send_value_packet(&tcp, &node_state, MyProtocol::DownNodeCheck)?;
@@ -101,6 +106,7 @@ fn get_node_state_from_host(host_info: &str) -> Result<MysqlState, Box<dyn Error
         }
         MyProtocol::Error => {
             let value: ReponseErr = serde_json::from_slice(&packet[9..])?;
+            info!("error: {:?}", &value);
             return get_node_state_from_host(host_info);
         }
         _ => {

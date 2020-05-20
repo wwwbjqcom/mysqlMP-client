@@ -19,7 +19,6 @@ pub trait Tell: Seek {
 
 impl<T> Tell for T where T: Seek { }
 
-
 #[derive(Debug, Clone, Serialize)]
 pub enum BinlogEvent{
     QueryEvent,

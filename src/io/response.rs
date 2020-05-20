@@ -182,40 +182,34 @@ pub fn authswitchrequest(handshake: &HandshakePacket,buf: &Vec<u8>,conf: &Config
     return (packet, auth_plugin_data.to_vec());
 }
 
-pub fn sha2_auth(conn: &mut TcpStream, auth_data: &Vec<u8>, conf: &Config) -> bool {
-    let (payload, seq_id) = ([0x02],5);
-    let mut packet: Vec<u8> = vec![];
-    packet.extend(pack_header(&payload, seq_id));
-    packet.extend(payload.iter());
-    write_value(conn, &packet).unwrap_or_else(|err|{
-        info!("{:?}",err);
-        std::process::exit(1)
-    });
-
-    let (packet_buf,_) = socketio::get_packet_from_stream(conn);
-
-    let key = &packet_buf[1..];
-    let mut password = conf.password.as_bytes().to_vec();
-    password.push(0);
-    for i in 0..password.len() {
-        password[i] ^= auth_data[i % auth_data.len()];
-    }
-    let encrypted_pass = encrypt(&password, &key);
-    let mut packet: Vec<u8> = vec![];
-    packet.extend(pack_header(&encrypted_pass, 7));
-    packet.extend(encrypted_pass.iter());
-    write_value(conn, &packet).unwrap_or_else(|err|{
-        info!("{:?}",err);
-        std::process::exit(1)
-    });
-
-    let (packet_buf,_) = socketio::get_packet_from_stream(conn);
-    if pack::check_pack(&packet_buf) {
-        return true;
-    } else {
-        return false;
-    }
-}
+//pub fn sha2_auth(conn: &mut TcpStream, auth_data: &Vec<u8>, conf: &Config) -> bool {
+//    let (payload, seq_id) = ([0x02],5);
+//    let mut packet: Vec<u8> = vec![];
+//    packet.extend(pack_header(&payload, seq_id));
+//    packet.extend(payload.iter());
+//    write_value(conn, &packet)?;
+//
+//    let (packet_buf,_) = socketio::get_packet_from_stream(conn);
+//
+//    let key = &packet_buf[1..];
+//    let mut password = conf.password.as_bytes().to_vec();
+//    password.push(0);
+//    for i in 0..password.len() {
+//        password[i] ^= auth_data[i % auth_data.len()];
+//    }
+//    let encrypted_pass = encrypt(&password, &key);
+//    let mut packet: Vec<u8> = vec![];
+//    packet.extend(pack_header(&encrypted_pass, 7));
+//    packet.extend(encrypted_pass.iter());
+//    write_value(conn, &packet)?;
+//
+//    let (packet_buf,_) = socketio::get_packet_from_stream(conn);
+//    if pack::check_pack(&packet_buf) {
+//        return true;
+//    } else {
+//        return false;
+//    }
+//}
 
 
 //组装heder部分

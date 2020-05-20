@@ -30,11 +30,11 @@ impl HandshakePacket{
             return Err("packet is error");
         }
         let mut offset: usize = 0;
-        let packet_type = buf[0];
-
-        if packet_type != 10{
-            return Err("packet type invalid");
-        }
+//        let packet_type = buf[0];
+//
+//        if packet_type != 10{
+//            return Err("packet type invalid");
+//        }
 
         offset += 1;
         let mut index= 0 ;
@@ -94,7 +94,7 @@ impl HandshakePacket{
 
         Ok(
             Self {
-                packet_type,
+                packet_type:10,
                 server_version,
                 thread_id,
                 auth_plugin_data,
@@ -118,19 +118,5 @@ pub fn check_pack(pack: &Vec<u8>) -> bool {
         Some(255) => false,
         _ => true
     }
-}
-/*
-Type	    Name	            Description
-int<1>	    header	            0xFF ERR packet header
-int<2>	    error_code	        error-code
-if capabilities & CLIENT_PROTOCOL_41 {
-string[1]	sql_state_marker	# marker of the SQL state
-string[5]	sql_state	        SQL state
-}
-string<EOF>	error_message	    human readable error message
-*/
-
-pub fn erro_pack(pack: &Vec<u8>) -> String {
-    readvalue::read_string_value(&pack[3..])
 }
 
