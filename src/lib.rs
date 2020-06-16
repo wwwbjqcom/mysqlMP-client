@@ -13,10 +13,12 @@ pub mod storage;
 
 use pool::ThreadPool;
 use structopt::StructOpt;
-use std::sync::{Arc};
+use std::sync::{Arc, Mutex};
 use std::net::{TcpListener, TcpStream};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::mysql::ReponseErr;
+use chrono::prelude::*;
+use chrono;
 
 #[macro_use]
 extern crate log;
@@ -28,6 +30,8 @@ use log4rs::append::file::FileAppender;
 use log4rs::encode::pattern::PatternEncoder;
 use log4rs::config::{Appender, Root};
 use std::error::Error;
+use std::thread;
+use crate::mysql::state_check::{MysqlState, LastCheckTime};
 
 fn init_log() {
     let stdout = ConsoleAppender::builder().build();
@@ -219,28 +223,32 @@ pub fn start(conf: Config) {
         std::process::exit(1)
     });
 
+    let default_mysql_state = Arc::new(Mutex::new(mysql::state_check::MysqlState::new()));
+    let now_time = Local::now().timestamp_millis() as usize;
+    let default_check_time = Arc::new(Mutex::new(mysql::state_check::LastCheckTime{last_time:now_time}));
     //mysql 状态检查线程
     let conf = Arc::new(conf);
-//    let mysql_state = Arc::new(Mutex::new(mysql::state_check::MysqlState::new()));
-//    thread::spawn(move|| {
-//        let conf = Arc::clone(&conf);
-//        let mysql_state = Arc::clone(&mysql_state);
-//        mysql::state_check::mysql_state_check(conf, mysql_state);
-//    });
+    let (a, b, c) = (Arc::clone(&default_mysql_state), Arc::clone(&default_check_time), Arc::clone(&conf));
+    let mut health_conn = mysql::state_check::MysqlConn::new(a, b, c).unwrap();
+    thread::spawn(move|| {
+        health_conn.loop_state_check().unwrap();
+    });
+
 
     let pool = ThreadPool::new(4);
     // accept connections and process them serially
     for stream in listener.incoming() {
         let conf = Arc::clone(&conf);
         let stream = stream.unwrap();
+        let (a, b) = (Arc::clone(&default_mysql_state), Arc::clone(&default_check_time));
         pool.execute(move||{
-            handle_stream(stream, conf)
+            handle_stream(stream, conf, a, b)
         });
     }
 }
 
 
-fn handle_stream(mut tcp: TcpStream, conf: Arc<Config>) {
+fn handle_stream(mut tcp: TcpStream, conf: Arc<Config>, state: Arc<Mutex<MysqlState>>, last_check_time: Arc<Mutex<LastCheckTime>>) {
     tcp.set_read_timeout(Some(Duration::new(2,10))).expect("set_read_timeout call failed");
     tcp.set_write_timeout(Some(Duration::new(10,10))).expect("set_write_timeout call failed");
 
@@ -254,7 +262,7 @@ fn handle_stream(mut tcp: TcpStream, conf: Arc<Config>) {
             //println!("{:?},{:?}",buf[0],type_code);
             match type_code {
                 mysql::MyProtocol::MysqlCheck => {
-                    if let Err(e) = mysql::state_check::mysql_state_check(&tcp, conf){
+                    if let Err(e) = mysql::state_check::mysql_state_check(&tcp, &state, &last_check_time){
                         let state = mysql::send_error_packet(&ReponseErr::new(e.to_string()), &mut tcp);
                         info!("{}",e.to_string());
                         mysql::check_state(&state);

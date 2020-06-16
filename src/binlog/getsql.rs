@@ -205,9 +205,9 @@ fn get_insert_col_str(table_cols_info: &Vec<HashMap<String, String>>) -> String 
     let cols = table_cols_info.len();
     for (idx,col_info) in table_cols_info.iter().enumerate() {
         if idx < cols -1 {
-            col_str.push_str(&format!("{},",col_info.get("COLUMN_NAME").unwrap()));
+            col_str.push_str(&format!("`{}`,",col_info.get("COLUMN_NAME").unwrap()));
         }else {
-            col_str.push_str(&format!("{})",col_info.get("COLUMN_NAME").unwrap()));
+            col_str.push_str(&format!("`{}`)",col_info.get("COLUMN_NAME").unwrap()));
         }
     }
     col_str
@@ -291,72 +291,72 @@ fn get_value_str(value: &Option<MySQLValue>,col: &String, col_type: &String, get
     let mut where_str = String::from("");
     match value {
         Some(MySQLValue::String(t)) => {
-            where_str.push_str(&format!("{}='{}'",col, t));
+            where_str.push_str(&format!("`{}`='{}'",col, t));
         }
         Some(MySQLValue::Blob(t)) => {
             let col_type = col_type;
             match col_type.find("text") {
                 Some(_) => {
-                    where_str.push_str(&format!("{}='{}'",col, from_utf8(t).unwrap()));
+                    where_str.push_str(&format!("`{}`='{}'",col, from_utf8(t).unwrap()));
                     return where_str;
                 }
                 None => {}
             }
             match col_type.find("char") {
                 Some(_) => {
-                    where_str.push_str(&format!("{}='{}'",col, from_utf8(t).unwrap()));
+                    where_str.push_str(&format!("`{}`='{}'",col, from_utf8(t).unwrap()));
                     return where_str;
                 }
                 None => {}
             }
 
             if t.len()> 0{
-                where_str.push_str(&format!("{}=0x{}",col,hex::encode(t)));
+                where_str.push_str(&format!("`{}`=0x{}",col,hex::encode(t)));
             }else {
                 match get_type {
-                    GetType::GetWhere => where_str.push_str(&format!("{} is Null",col)),
-                    GetType::GetSet => where_str.push_str(&format!("{}=Null",col)),
+                    GetType::GetWhere => where_str.push_str(&format!("`{}` is Null",col)),
+                    GetType::GetSet => where_str.push_str(&format!("`{}`=Null",col)),
                 }
             }
         }
         Some(MySQLValue::Timestamp {unix_time, subsecond}) => {
-            where_str.push_str(&format!("{}=from_unixtime({}.{})", col, unix_time, subsecond));
+            where_str.push_str(&format!("`{}`=from_unixtime({}.{})", col, unix_time, subsecond));
         }
         Some(MySQLValue::Enum(t)) => {
-            where_str.push_str(&format!("{}={}",col,t));
+            where_str.push_str(&format!("`{}`={}",col,t));
         }
         Some(MySQLValue::DateTime {year, month, day, hour, minute, second, subsecond}) => {
-            where_str.push_str(&format!("{}='{}-{}-{} {}:{}:{}.{}'", col,year,month,day,hour,minute,second,subsecond));
+            where_str.push_str(&format!("`{}`='{}-{}-{} {}:{}:{}.{}'", col,year,month,day,hour,minute,second,subsecond));
         }
         Some(MySQLValue::Double(t)) => {
-            where_str.push_str(&format!("{}={}",col, t));
+            where_str.push_str(&format!("`{}`={}",col, t));
         }
         Some(MySQLValue::Float(t)) => {
-            where_str.push_str(&format!("{}={}",col, t));
+            where_str.push_str(&format!("`{}`={}",col, t));
         }
         Some(MySQLValue::Year(t)) => {
-            where_str.push_str(&format!("{}={}",col, t));
+            where_str.push_str(&format!("`{}`={}",col, t));
         }
         Some(MySQLValue::Decimal(t)) => {
-            where_str.push_str(&format!("{}={}",col, t.to_f64().unwrap()));
+            where_str.push_str(&format!("`{}`={}",col, t.to_f64().unwrap()));
         }
         Some(MySQLValue::SignedInteger(t)) => {
-            where_str.push_str(&format!("{}={}",col, t));
+            where_str.push_str(&format!("`{}`={}",col, t));
         }
         Some(MySQLValue::Json(t)) => {
-            where_str.push_str(&format!("{}='{}'",col, serde_json::to_string(&t).unwrap()));
+            where_str.push_str(&format!("`{}`='{}'",col, serde_json::to_string(&t).unwrap()));
         }
         Some(MySQLValue::Null) => {
             match get_type {
-                GetType::GetWhere => where_str.push_str(&format!("{} is Null",col)),
-                GetType::GetSet => where_str.push_str(&format!("{}=Null",col)),
+                GetType::GetWhere => where_str.push_str(&format!("`{}` is Null",col)),
+                GetType::GetSet => where_str.push_str(&format!("`{}`=Null",col)),
             }
         }
         Some(MySQLValue::Time {hours, minutes, seconds, subseconds}) => {
-            where_str.push_str(&format!("{}='{}:{}:{}.{}'",col, hours, minutes, seconds, subseconds));
+            where_str.push_str(&format!("`{}`='{}:{}:{}.{}'",col, hours, minutes, seconds, subseconds));
         }
         Some(MySQLValue::Date {year, month, day}) => {
-            where_str.push_str(&format!("{}='{}-{}-{}'",col, year, month, day));
+            where_str.push_str(&format!("`{}`='{}-{}-{}'",col, year, month, day));
         }
         _ => {
             info!("{:?}",value);

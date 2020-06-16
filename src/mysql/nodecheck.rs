@@ -78,10 +78,10 @@ pub fn check_down_node(tcp: &mut TcpStream,conf: &Arc<Config>, buf: &Vec<u8>) ->
     let host_vec = host_info.collect::<Vec<&str>>();
     let host_info = format!("{}:{}",host_vec[0],value.dbport);
     new_conf.alter_host(host_info);
-    info!("{:?}",new_conf);
     if let Err(e) = crate::create_conn(&new_conf) {
         let a = e.to_string();
-        if !a.contains("many connections"){
+        info!("check host {} error: {}", &new_conf.host_info, &e);
+        if !a.to_lowercase().contains("many connections"){
             node_state.set_db_status();
         }
 

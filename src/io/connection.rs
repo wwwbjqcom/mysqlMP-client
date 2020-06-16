@@ -52,7 +52,7 @@ impl MysqlConnection{
     }
 
     pub fn create(&mut self, conf: &Config) -> Result<(), Box<dyn Error>>{
-        let (packet_buf,_) = socketio::get_packet_from_stream(&mut self.conn);
+        let (packet_buf,_) = socketio::get_packet_from_stream(&mut self.conn)?;
         let mut read_buf = Cursor::new(packet_buf);
         self.get_packet_type(&mut read_buf)?;
         match self.packet_type{
@@ -83,7 +83,7 @@ impl MysqlConnection{
         socketio::write_value(&mut self.conn, v.as_ref())?;
 
         //检查服务端回包情况
-        let (packet_buf,_) = socketio::get_packet_from_stream(&mut self.conn);
+        let (packet_buf,_) = socketio::get_packet_from_stream(&mut self.conn)?;
 
 
         let mut tmp_auth_data = vec![];
@@ -94,14 +94,14 @@ impl MysqlConnection{
             socketio::write_value(&mut self.conn, auth_data.as_ref())?;
         }
 
-        let (packet_buf,_) = socketio::get_packet_from_stream(&mut self.conn);
+        let (packet_buf,_) = socketio::get_packet_from_stream(&mut self.conn)?;
         if pack::check_pack(&packet_buf) {
             if packet_buf[1] == 4{
                 if self.sha2_auth( &tmp_auth_data, conf)?{
                     self.status = true;
                 }
             }else if packet_buf[1] == 3 {
-                let (packet_buf,_) = socketio::get_packet_from_stream(&mut self.conn);
+                let (packet_buf,_) = socketio::get_packet_from_stream(&mut self.conn)?;
                 if !pack::check_pack(&packet_buf) {
                     self.erro_pack(&packet_buf);
                 }else {
@@ -124,7 +124,7 @@ impl MysqlConnection{
         packet.extend(payload.iter());
         write_value(&mut self.conn, &packet)?;
 
-        let (packet_buf,_) = socketio::get_packet_from_stream(&mut self.conn);
+        let (packet_buf,_) = socketio::get_packet_from_stream(&mut self.conn)?;
 
         let key = &packet_buf[1..];
         let mut password = conf.password.as_bytes().to_vec();
@@ -138,7 +138,7 @@ impl MysqlConnection{
         packet.extend(encrypted_pass.iter());
         write_value(&mut self.conn, &packet)?;
 
-        let (packet_buf,_) = socketio::get_packet_from_stream(&mut self.conn);
+        let (packet_buf,_) = socketio::get_packet_from_stream(&mut self.conn)?;
         if pack::check_pack(&packet_buf) {
             return Ok(true);
         } else {

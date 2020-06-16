@@ -4,12 +4,20 @@
 */
 
 
-use crate::{Config, mysql};
-use std::sync::{Arc};
+use crate::{Config, mysql, readvalue};
+use std::sync::{Arc, Mutex};
 use std::net::TcpStream;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::error::Error;
+use chrono::prelude::*;
+use chrono;
+use std::{thread, time};
+use crate::io::socketio;
+
+pub struct LastCheckTime{
+    pub last_time: usize,   //最后一次检查的时间
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MysqlState {
@@ -56,6 +64,30 @@ impl MysqlState {
             innodb_buffer_pool_size: 0,
             last_sql_error: "".to_string(),
             last_io_error: "".to_string(),
+        }
+    }
+
+    pub fn my_clone(&self) -> MysqlState{
+        MysqlState{
+            online: self.online.clone(),
+            role: self.role.clone(),
+            master: self.master.clone(),
+            sql_thread: self.sql_thread.clone(),
+            io_thread: self.io_thread.clone(),
+            seconds_behind: self.seconds_behind.clone(),
+            master_log_file: self.master_log_file.clone(),
+            read_master_log_pos: self.read_master_log_pos.clone(),
+            exec_master_log_pos: self.exec_master_log_pos.clone(),
+            read_only: self.read_only.clone(),
+            version: self.version.clone(),
+            executed_gtid_set: self.executed_gtid_set.clone(),
+            innodb_flush_log_at_trx_commit: self.innodb_flush_log_at_trx_commit.clone(),
+            sync_binlog: self.sync_binlog.clone(),
+            server_id: self.server_id.clone(),
+            event_scheduler: self.event_scheduler.clone(),
+            innodb_buffer_pool_size: self.innodb_buffer_pool_size.clone(),
+            last_sql_error: self.last_sql_error.clone(),
+            last_io_error: self.last_io_error.clone()
         }
     }
 
@@ -181,22 +213,153 @@ impl MysqlState {
     }
 }
 
-pub fn mysql_state_check(tcp: &TcpStream, conf: Arc<Config>) -> Result<(), Box<dyn Error>> {
-    let mut state = MysqlState::new();
-    let tcp_conn = crate::create_conn(&conf);
-    match tcp_conn {
-        Ok(mut conn) => {
-            state.online = true;
-            state.slave_state_check(&mut conn)?;
-            state.variable_check(&mut conn)?;
-            state.gtid_check(&mut conn)?;
-            crate::io::command::close(&mut conn);
-        }
-        Err(e) => {
-            info!("{:?}", e.to_string());
+
+pub struct MysqlConn{
+    pub conn: TcpStream,
+    pub state: Arc<Mutex<MysqlState>>,
+    pub laste_check_time: Arc<Mutex<LastCheckTime>>,
+    pub conf: Arc<Config>,
+    pub conn_state: bool
+}
+
+impl MysqlConn{
+    pub fn new(state: Arc<Mutex<MysqlState>>, laste_check_time: Arc<Mutex<LastCheckTime>>, conf: Arc<Config>) -> Result<MysqlConn, Box<dyn Error>> {
+        let my_conf = conf.clone_new();
+        let conn = crate::create_conn(&my_conf)?;
+        return Ok(MysqlConn{conn, state, laste_check_time, conf, conn_state: true });
+    }
+
+
+    /// 循环获取mysql各状态数据
+    pub fn loop_state_check(&mut self) -> Result<(), Box<dyn Error>> {
+        loop {
+            if let Err(e) = self.tcp_health_check(){
+                self.conn_state = false;
+                let a = e.to_string();
+                if a.to_lowercase().contains("too many connections"){
+                    self.set_value_for_error()?;
+                    thread::sleep(time::Duration::from_secs(1));
+                    continue;
+                }
+                if let Err(e) = self.set_state_to_default(){
+                    info!("status check thread failed to initialize default data");
+                };
+            }else {
+                self.conn_state = true;
+                if let Err(e) = self.check(){
+                    info!("set mysql state error: {:?}", e.to_string());
+                };
+            }
+            thread::sleep(time::Duration::from_secs(1));
         }
     }
-    mysql::send_value_packet(&tcp, &state, mysql::MyProtocol::MysqlCheck)?;
+
+    /// 发生too many connections报错时， 依然设置mysql检查状态为正常， 防止切换
+    fn set_value_for_error(&mut self) -> Result<(), Box<dyn Error>>{
+        let mut state_lock = self.state.lock().unwrap();
+        state_lock.online = true;
+        let mut last_lock = self.laste_check_time.lock().unwrap();
+        last_lock.last_time = Local::now().timestamp_millis() as usize;
+        Ok(())
+    }
+
+    /// 获取数据
+    fn check(&mut self) -> Result<(), Box<dyn Error>> {
+        let mut state_lock = self.state.lock().unwrap();
+        state_lock.slave_state_check(&mut self.conn)?;
+        state_lock.variable_check(&mut self.conn)?;
+        state_lock.gtid_check(&mut self.conn)?;
+        state_lock.online = true;
+        let mut last_check_time_lock = self.laste_check_time.lock().unwrap();
+        last_check_time_lock.last_time = Local::now().timestamp_millis() as usize;
+        Ok(())
+    }
+
+    /// 设置mysql状态为false
+    fn set_state_to_default(&mut self) -> Result<(), Box<dyn Error>>{
+        let mut state_lock = self.state.lock().unwrap();
+        state_lock.online = false;
+        Ok(())
+    }
+
+    /// 发送ping 检查连接可用性
+    pub fn tcp_health_check(&mut self) -> Result<(), Box<dyn Error>>{
+        if self.conn_state{
+            let mut packet: Vec<u8> = vec![];
+            packet.extend(readvalue::write_u24(1));
+            packet.push(0);
+            packet.push(0x0e);
+            socketio::write_value(&mut self.conn,&packet)?;
+            let get_state = socketio::get_packet_from_stream(&mut self.conn);
+            match get_state{
+                Ok((buf, _)) => {
+                    if buf[0] == 0x00{
+                        return Ok(());
+                    }else {
+                        self.create_my_conn()?;
+                    }
+                }
+                Err(e) => {
+                    self.create_my_conn()?;
+                }
+            }
+        }else {
+            self.create_my_conn()?;
+        }
+        return Ok(())
+    }
+
+    fn create_my_conn(&mut self) -> Result<(), Box<dyn Error>>{
+        for _ in 0..3{
+            let tcp_conn = crate::create_conn(&self.conf);
+            match tcp_conn {
+                Ok(conn) => {
+                    self.conn = conn;
+                    self.conn_state = true;
+                    return Ok(())
+                }
+                Err(e) => {
+                    let a = e.to_string();
+                    info!("create connection error: {:?}", &a);
+                    if a.to_lowercase().contains("too many connections"){
+                        return Err(String::from("too many connections").into());
+                    }
+                }
+            }
+            thread::sleep(time::Duration::from_millis(50));
+        }
+        return Err(String::from("create mysql connection failed").into());
+    }
+}
+
+
+
+pub fn mysql_state_check(tcp: &TcpStream, state: &Arc<Mutex<MysqlState>>, last_check_time: &Arc<Mutex<LastCheckTime>>) -> Result<(), Box<dyn Error>> {
+//    let mut state = MysqlState::new();
+//    let tcp_conn = crate::create_conn(&conf);
+//    match tcp_conn {
+//        Ok(mut conn) => {
+//            state.online = true;
+//            state.slave_state_check(&mut conn)?;
+//            state.variable_check(&mut conn)?;
+//            state.gtid_check(&mut conn)?;
+//            crate::io::command::close(&mut conn);
+//        }
+//        Err(e) => {
+//            info!("{:?}", e.to_string());
+//        }
+//    }
+    let state_lock = state.lock().unwrap();
+    let last_lock = last_check_time.lock().unwrap();
+    let now_time = Local::now().timestamp_millis() as usize;
+    if now_time - last_lock.last_time >= 10000{
+        let state = MysqlState::new();
+        //info!("the status data lags behind for more than 10s, send mysql default packet");
+        mysql::send_value_packet(&tcp, &state, mysql::MyProtocol::MysqlCheck)?;
+        return Ok(())
+    }
+    let my_state = state_lock.my_clone();
+    mysql::send_value_packet(&tcp, &my_state, mysql::MyProtocol::MysqlCheck)?;
     Ok(())
 }
 

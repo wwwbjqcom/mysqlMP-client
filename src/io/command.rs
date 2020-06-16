@@ -104,7 +104,7 @@ pub fn execute_update(conn: &mut TcpStream,sql: &String) -> Result<(), Box<dyn E
     let pack = commquery(sql);
     socketio::write_value(conn,&pack)?;
 
-    let (buf,_) = socketio::get_packet_from_stream(conn);
+    let (buf,_) = socketio::get_packet_from_stream(conn)?;
     if pack::check_pack(&buf){
         return Ok(());
     }else {
@@ -138,8 +138,8 @@ fn commquery(sql: &String) -> Vec<u8>{
     return pack;
 }
 
-fn unpack_text_packet(conn: &mut TcpStream) -> Result<Vec<HashMap<String,String>>,&'static str> {
-    let (buf,_) = socketio::get_packet_from_stream(conn);
+fn unpack_text_packet(conn: &mut TcpStream) -> Result<Vec<HashMap<String,String>>,Box<dyn Error>> {
+    let (buf,_) = socketio::get_packet_from_stream(conn)?;
 
     if pack::check_pack(&buf){
         let mut values_info = vec![];   //数据值
@@ -147,13 +147,13 @@ fn unpack_text_packet(conn: &mut TcpStream) -> Result<Vec<HashMap<String,String>
 
         let column_count = buf[0];
         for _ in 0..column_count {
-            let (buf,_) = socketio::get_packet_from_stream(conn);
+            let (buf,_) = socketio::get_packet_from_stream(conn)?;
             let column = MetaColumn::new(&buf);
             column_info.push(column);
         }
         //开始获取返回数据
         loop {
-            let (buf,header) = socketio::get_packet_from_stream(conn);
+            let (buf,header) = socketio::get_packet_from_stream(conn)?;
             //println!("{},{}",buf[0], header.payload);
             if buf[0] == 0x00{
                 if header.payload < 9{
@@ -169,7 +169,7 @@ fn unpack_text_packet(conn: &mut TcpStream) -> Result<Vec<HashMap<String,String>
     }else {
         let _err = readvalue::read_string_value(&buf[3..]);
         info!("执行语句错误: {}",_err);
-        Err("退出程序")
+        Err(String::from("退出程序").into())
     }
 }
 
