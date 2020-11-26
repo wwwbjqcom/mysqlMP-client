@@ -40,8 +40,12 @@ fn get_from_stream(stream: &mut TcpStream) -> Result<(Vec<u8>, PacketHeader), Bo
                 }
             }
             Err(e) => {
-                info!("get_from_stream error: {}",e);
-                return Err(e.to_string().into())
+                let str_tmp = e.to_string();
+                info!("get_from_stream error: {}",str_tmp);
+                if str_tmp.contains("Resource temporarily unavailable") {
+                    continue;
+                }
+                return Err(str_tmp.into())
             }
         }
 
